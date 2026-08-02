@@ -105,6 +105,10 @@ Gates arrive in pairs at the same `y`, one centred at `x = -3`, one at `x = +3`,
 formation some units would otherwise clip both gates, which is unreadable and produces arguments
 with the player. One centre, one gate, whole squad — deterministic and legible.
 
+**Passing outside both gates is legal and applies nothing.** The corridor is wider than the gate
+pair, so steering to an outer edge skips the pair entirely. This is deliberate: when both options
+are bad, refusing both should be available, and it gives the corridor's full width a purpose.
+
 Three families:
 
 **Count** — `+N`, `−N`, `×N`, `÷N`. The archetype's bread and butter.
@@ -123,9 +127,15 @@ what makes a run worth repeating. A pair offering `+15` against `weapon +1` is t
 
 ## Threats
 
-**Enemy crowds** spawn ahead in groups, advance toward the squad and fire back. They use the same
-`Units` container and the same `Projectiles` pool type as the squad — the only asymmetry is which
-direction things travel and who owns which pool.
+**Enemy crowds** spawn ahead in groups and fire back. They use the same `Units` container and the
+same `Projectiles` pool type as the squad — the only asymmetry is which direction things travel and
+who owns which pool.
+
+**Enemy motion is scroll plus their own velocity, and both are real.** Every piece of track content
+moves toward `y = 0` at the scroll speed; enemy units additionally carry a negative-`y` velocity of
+their own, so they close faster than the corridor does. Enemies that stand still relative to the
+track are simply given zero velocity. Keeping these two motions separate rather than folding them
+together means the scroll speed can be retuned without silently changing how aggressive enemies feel.
 
 **Hazards** are static obstacles occupying an `x` range: any squad unit overlapping one takes
 damage. They exist so the gaps between gates are not dead time, and so formation width carries a
@@ -189,6 +199,15 @@ checked. Facing is not framing.
 Target 60fps on a mid-range Android phone.
 
 - Caps: 256 squad units, 256 enemy units, 512 projectiles per pool.
+
+**The squad cap is hard, and gates clamp against it.** Unlike phase 1's horde, every squad unit has
+a position that matters — it decides what your fire covers and what a hazard clips — so there is no
+honest way to let the model count exceed what is drawn. A `×2` at 200 units yields 256, not 400.
+
+The design consequence must be respected in tuning: **at the cap, a `×N` gate is worth nothing**, and
+a game where the squad sits pinned at 256 has silently deleted its own most exciting gate. Typical
+counts should sit well below the cap, with the ceiling reachable only briefly and as a reward.
+Multiplier gates and enemy lethality get balanced against each other with that in mind.
 - `MultiMeshInstance3D` per type, one draw call each. Unskinned meshes, procedural bob.
 - **No Godot physics anywhere** — no `Area3D`, `RigidBody3D`, `CharacterBody3D`. Positions are flat
   arrays; collision is arithmetic.
