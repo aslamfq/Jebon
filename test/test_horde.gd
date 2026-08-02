@@ -57,7 +57,20 @@ func test_swap_remove_keeps_survivors_intact():
     horde.damage_at(Vector2(0, 10), 1.0, 10.0)
     assert_eq(horde.count, 1)
     assert_eq(horde.positions[0], Vector2(5, 5))
+    assert_almost_eq(horde.healths[0], 10.0, 0.001)
     assert_almost_eq(horde.speeds[0], 3.0, 0.001)
+
+func test_damage_at_kills_multiple_swapped_in_zombies_in_one_call():
+    # All three sit inside one damage radius. When index 0 dies, the tail
+    # zombie is swapped into slot 0 by _remove_at and must be re-tested
+    # without incrementing i — otherwise it (and a second swapped-in
+    # zombie) would survive undamaged.
+    horde.spawn(Vector2(0, 10), 10.0, 2.0)      # index 0, will die
+    horde.spawn(Vector2(0.2, 10), 10.0, 2.0)    # index 1, will die
+    horde.spawn(Vector2(-0.2, 10), 10.0, 2.0)   # index 2, will die
+    var kills := horde.damage_at(Vector2(0, 10), 1.0, 10.0)
+    assert_eq(kills, 3, "every zombie in the radius must die, including swapped-in ones")
+    assert_eq(horde.count, 0)
 
 func test_angle_of_is_zero_straight_ahead():
     horde.spawn(Vector2(0, 10), 10.0, 2.0)
