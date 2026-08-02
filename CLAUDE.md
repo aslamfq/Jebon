@@ -5,12 +5,14 @@
 Fixed-position endless horde-defense game. Godot 4, GDScript, Android target. Free, no ads,
 no IAP.
 
-Design spec: `../Planner/Holdout/specs/2026-08-02-holdout-design.md`
-Phase 1 plan: `../Planner/Holdout/plans/2026-08-02-phase-1-greybox.md`
+**Current design: `docs/specs/2026-08-02-onrush-design.md`.** Read that one.
 
-Both still live in `Planner` only because this repo did not exist when they were written.
-Move them into `docs/` here and delete `Planner/Holdout/` — workspace convention puts a
-project's own plans beside its code.
+Superseded, kept for its decision record and for the units the current design inherits:
+`docs/specs/2026-08-02-holdout-design.md` and `docs/plans/2026-08-02-phase-1-greybox.md`.
+That earlier design was a fixed-position horde defense; it was built to a working state
+(seven units, 84 tests, merged to `main`) before the game pivoted to a crowd runner.
+`BarricadeSet`, `BarricadeView`, `game.gd` and `game.tscn` on `main` belong to that old
+design and are superseded — do not build on them.
 
 ## Engine
 
