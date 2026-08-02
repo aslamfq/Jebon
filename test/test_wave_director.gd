@@ -48,7 +48,7 @@ func test_respects_the_concurrency_cap():
 func test_spawns_only_up_to_remaining_headroom():
     var d := WaveDirector.new(42)
     var spawns := d.tick(60.0, Horde.MAX_ZOMBIES - 3)
-    assert_lte(spawns.size(), 3)
+    assert_eq(spawns.size(), 3, "must fill the available headroom exactly")
 
 func test_difficulty_escalates():
     var d := WaveDirector.new(42)
@@ -71,3 +71,16 @@ func test_reset_returns_to_wave_one():
     d.tick(100.0, 0)
     d.reset()
     assert_eq(d.wave, 1)
+
+func test_reset_replays_the_same_spawn_sequence():
+    var d := WaveDirector.new(42)
+    var first_run: Array[PackedVector2Array] = []
+    for i in 10:
+        first_run.append(d.tick(1.0, 0))
+    d.reset()
+    var second_run: Array[PackedVector2Array] = []
+    for i in 10:
+        second_run.append(d.tick(1.0, 0))
+    for i in 10:
+        assert_eq(second_run[i], first_run[i],
+            "reset must replay an identical spawn sequence for the same seed")
