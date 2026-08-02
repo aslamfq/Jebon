@@ -50,12 +50,21 @@ func test_aim_never_leaves_the_frontal_arc():
 # an implementation that clamps the target angle asymmetrically (e.g. min(angle, MAX_ANGLE)
 # with no lower bound) would pass every test above while still letting a hard-left drag put
 # the player's aim behind themselves.
+#
+# Both bounds are checked, not just the lower one: an unclamped target angle of roughly
+# -312.5 rad (from -100000 / PIXELS_PER_RADIAN with no lower clamp) still gets fed through
+# sin()/cos(), and that periodicity wraps it to an equivalent angle of about +1.66 rad —
+# past MAX_ANGLE on the *positive* side, not negative. A check of only the lower bound would
+# have missed exactly the asymmetric-clamp bug this test exists to catch, because the wrapped
+# angle trivially satisfies "angle >= -MAX_ANGLE" while still being outside the frontal arc.
 func test_aim_never_leaves_the_frontal_arc_on_the_left():
     aim_input.aim_at_screen_delta(Vector2(-100000, 0))
     for i in 300:
         aim_input.tick(1.0 / 60.0)
     var angle := atan2(aim_input.aim.x, aim_input.aim.y)
     assert_gte(angle, -AimInput.MAX_ANGLE - 0.001,
+        "the player must never aim behind themselves")
+    assert_lte(angle, AimInput.MAX_ANGLE + 0.001,
         "the player must never aim behind themselves")
 
 # Strengthens the brief's smoothed-not-instant check with the exact value the exp() formula
