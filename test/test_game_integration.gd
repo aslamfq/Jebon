@@ -225,3 +225,48 @@ func test_restart_resets_state_without_reallocating_units():
         assert_almost_eq(game.squad.units.positions[i].x, target.x, 0.001,
             "restart must snap units back onto their opening slots immediately, not leave them lerping in from wherever they were")
         assert_almost_eq(game.squad.units.positions[i].y, target.y, 0.001)
+
+func test_real_scene_combat_produces_a_kill():
+    # Closes a gap the mirrored _simulate() tests cannot: they prove the
+    # combat pattern works, but by construction never execute a single line
+    # of the real Game._process() (see this file's own header comment,
+    # untouched above). Phase 1 treated the equivalent gap for steering as
+    # mandatory to close with a real-scene test
+    # (test_input_drag_actually_steers_the_squad) rather than deferring it;
+    # this is that same closure for combat -- confirmed via Task 7's own
+    # break-check, which found that mutating game.gd's real
+    # run.record_kills(...) line was caught by nothing in the suite before
+    # this test existed.
+    #
+    # Game._ready() seeds its TrackGenerator with randi() -- an
+    # uncontrolled seed -- so override it with a seeded one before ticking.
+    # Game._process() runs the identical order of operations as _simulate()
+    # (generator tick, runner/steer/squad tick, both Volley.fire calls, both
+    # Projectiles.tick calls, both resolve_hits calls, contact damage), and
+    # TrackGenerator's RNG is consumed only as a function of elapsed time
+    # and group size, not of anything that could differ between the two
+    # paths here (no steering input, same starting squad/weapon/generator
+    # state), so the same seed against the same step schedule reproduces
+    # the same spawn sequence.
+    #
+    # 900 frames (15s), not test_squad_fire_kills_enemies's 20s: that test's
+    # _simulate() halts the instant the squad is wiped and returns the kill
+    # count as of that instant, but Game._process() has no such halt -- on
+    # wipe it calls _restart() in the same frame, and RunState.reset()
+    # zeroes kills. Traced this seed empirically with a standalone probe
+    # mirroring _process() exactly: seed 1's squad wipes at frame 1162
+    # (~19.37s), so ticking to 1200 frames (20s) hits the post-restart
+    # window and reads back kills=0 even though 7 kills happened first --
+    # not a bug in Game, just the wrong duration for this assertion. The
+    # same probe showed the first kill at frame 180 (3.0s) and 6 kills
+    # accumulated by frame 808 (13.47s), so 900 frames lands comfortably
+    # after the first kill and comfortably before the wipe.
+    var game := _make_game()
+    game.generator = TrackGenerator.new(1)
+
+    var step := 1.0 / 60.0
+    for i in 900:
+        game._process(step)
+
+    assert_gt(game.run.kills, 0,
+        "the squad's fire must actually kill enemies through the real Game._process(), not just the mirrored _simulate() reimplementation")
