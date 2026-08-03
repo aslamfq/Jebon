@@ -20,17 +20,17 @@ var projectile_speed := 35.0
 var _accumulator := 0.0
 
 static func damage_at(tier: int) -> float:
-    return Weapon.TIER_DAMAGE[tier]
+    return Weapon.TIER_DAMAGE[clampi(tier, 0, TIER_COUNT - 1)]
 
 static func projectiles_per_shot_at(tier: int) -> int:
-    return Weapon.TIER_PROJECTILES_PER_SHOT[tier]
+    return Weapon.TIER_PROJECTILES_PER_SHOT[clampi(tier, 0, TIER_COUNT - 1)]
 
 static func spread_degrees_at(tier: int) -> float:
-    return Weapon.TIER_SPREAD_DEGREES[tier]
+    return Weapon.TIER_SPREAD_DEGREES[clampi(tier, 0, TIER_COUNT - 1)]
 
 func tick(delta: float, tier: int) -> int:
     _accumulator += delta
-    var interval := TIER_FIRE_INTERVAL[tier]
+    var interval := TIER_FIRE_INTERVAL[clampi(tier, 0, TIER_COUNT - 1)]
     var shots := int(_accumulator / interval)
     _accumulator -= float(shots) * interval
     return shots

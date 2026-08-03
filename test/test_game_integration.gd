@@ -288,6 +288,17 @@ func test_real_scene_combat_produces_a_kill():
 
     assert_gt(game.run.kills, 0,
         "the squad's fire must actually kill enemies through the real Game._process(), not just the mirrored _simulate() reimplementation")
+    # The other half of the same gap: this test previously only proved the
+    # squad's OWN fire is wired through the real Game node, not that damage
+    # flows the other way. Deleting enemy_projectiles.resolve_hits(squad.units,
+    # ...) and both contact-damage lines in game.gd left the whole suite
+    # green -- the final whole-branch review's deferred-item finding, since
+    # nothing else drives the real Game node this far into a run. 900 frames
+    # is already well past where enemy pressure starts costing squad units
+    # (confirmed by the same review), so the squad must have taken losses by
+    # here.
+    assert_lt(game.squad.count(), Squad.STARTING_COUNT,
+        "enemy fire and/or contact damage must actually cost the squad units through the real Game._process(), not just the mirrored _simulate() reimplementation")
 
 func test_process_clamps_a_huge_delta_after_the_app_resumes_from_background():
     # Found on Aslam's real device: minimizing the app then reopening it
