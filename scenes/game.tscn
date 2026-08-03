@@ -1,8 +1,9 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://scripts/game.gd" id="1_game"]
 [ext_resource type="Script" path="res://scripts/views/corridor_view.gd" id="2_corridor_view"]
 [ext_resource type="Script" path="res://scripts/views/units_view.gd" id="3_units_view"]
+[ext_resource type="Script" path="res://scripts/views/projectile_view.gd" id="4_projectile_view"]
 
 [node name="Game" type="Node3D"]
 script = ExtResource("1_game")
@@ -21,6 +22,15 @@ script = ExtResource("2_corridor_view")
 
 [node name="UnitsView" type="MultiMeshInstance3D" parent="."]
 script = ExtResource("3_units_view")
+
+[node name="EnemyView" type="MultiMeshInstance3D" parent="."]
+script = ExtResource("3_units_view")
+
+[node name="SquadProjectileView" type="MultiMeshInstance3D" parent="."]
+script = ExtResource("4_projectile_view")
+
+[node name="EnemyProjectileView" type="MultiMeshInstance3D" parent="."]
+script = ExtResource("4_projectile_view")
 
 [node name="HUD" type="CanvasLayer" parent="."]
 

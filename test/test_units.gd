@@ -99,3 +99,23 @@ func test_clear_empties():
     units.spawn(Vector2.ZERO, Vector2.ZERO, 1.0)
     units.clear()
     assert_eq(units.count, 0)
+
+func test_tick_without_extra_velocity_is_unchanged():
+    # Guards the default-argument backward-compatibility this task depends
+    # on: every existing caller of tick(delta) must behave identically.
+    units.spawn(Vector2(0, 10), Vector2(0, -2), 1.0)
+    units.tick(1.0)
+    assert_almost_eq(units.positions[0].y, 8.0, 0.001)
+
+func test_extra_velocity_composes_with_each_units_own_velocity():
+    units.spawn(Vector2(0, 10), Vector2(0, -2), 1.0)
+    units.tick(1.0, Vector2(0, -3))
+    assert_almost_eq(units.positions[0].y, 5.0, 0.001,
+        "own velocity (-2) and extra_velocity (-3) must both apply, summed")
+
+func test_extra_velocity_applies_uniformly_to_every_unit():
+    units.spawn(Vector2(0, 10), Vector2.ZERO, 1.0)
+    units.spawn(Vector2(5, 20), Vector2(0, -1), 1.0)
+    units.tick(1.0, Vector2(0, -4))
+    assert_almost_eq(units.positions[0].y, 6.0, 0.001)
+    assert_almost_eq(units.positions[1].y, 15.0, 0.001)

@@ -6,6 +6,7 @@ const UNIT_HEALTH := 1.0
 
 var units: Units
 var formation: int = Formation.Kind.WIDE
+var weapon_tier := 0
 var centre_x := 0.0
 
 func _init() -> void:
@@ -38,6 +39,7 @@ func is_wiped() -> bool:
 
 func reset() -> void:
     formation = Formation.Kind.WIDE
+    weapon_tier = 0
     centre_x = 0.0
     units.clear()
     set_count(STARTING_COUNT)

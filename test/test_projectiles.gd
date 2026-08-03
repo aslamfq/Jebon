@@ -89,6 +89,22 @@ func test_resolve_hits_reprocesses_the_projectile_swapped_into_a_removed_slot():
     assert_eq(projectiles.count, 0, "the swapped-in bullet must still be resolved, not skipped")
     assert_eq(units.count, 0)
 
+func test_a_fast_bullet_does_not_tunnel_through_a_target():
+    # resolve_hits used to sample only the position AFTER tick() moved it --
+    # a bullet fast enough to land on the far side of its target in a single
+    # frame would never have a sample point within hit_radius of it, even
+    # though the swept path passed straight through. Fires from just behind
+    # a stationary target, at a speed/step that jumps clean past it.
+    units.spawn(Vector2(0, 10), Vector2.ZERO, 10.0)
+    projectiles.fire(Vector2(0, 9), Vector2(0, 1), 20.0)
+    projectiles.tick(0.1, 100.0)
+    assert_almost_eq(projectiles.positions[0].y, 11.0, 0.001,
+        "sanity check: the bullet must have actually jumped past the target this tick")
+    assert_eq(projectiles.resolve_hits(units, 0.5, 4.0), 0)
+    assert_eq(projectiles.count, 0, "the bullet is spent")
+    assert_almost_eq(units.healths[0], 6.0, 0.001,
+        "the swept path passed directly through the target -- a point-only check at the final position alone would miss this entirely")
+
 func test_clear_empties_the_pool():
     projectiles.fire(Vector2.ZERO, Vector2(0, 1), 45.0)
     projectiles.clear()

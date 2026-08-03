@@ -119,6 +119,14 @@ func test_set_count_shrink_keeps_survivors_pinned_to_their_original_slots():
         assert_almost_eq(squad.units.positions[i].y, before[i].y, 0.001,
             "shrinking must drop units from the end, not renumber survivors")
 
+func test_starts_at_weapon_tier_zero():
+    assert_eq(squad.weapon_tier, 0)
+
+func test_reset_restores_weapon_tier_zero():
+    squad.weapon_tier = 3
+    squad.reset()
+    assert_eq(squad.weapon_tier, 0)
+
 func _span() -> float:
     var lo := 1000.0
     var hi := -1000.0
