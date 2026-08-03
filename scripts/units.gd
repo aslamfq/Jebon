@@ -21,9 +21,9 @@ func spawn(pos: Vector2, velocity: Vector2, health: float) -> bool:
     count += 1
     return true
 
-func tick(delta: float) -> void:
+func tick(delta: float, extra_velocity: Vector2 = Vector2.ZERO) -> void:
     for i in count:
-        positions[i] += velocities[i] * delta
+        positions[i] += (velocities[i] + extra_velocity) * delta
 
 func set_position(i: int, pos: Vector2) -> void:
     positions[i] = pos
