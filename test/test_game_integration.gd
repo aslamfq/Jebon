@@ -270,3 +270,23 @@ func test_real_scene_combat_produces_a_kill():
 
     assert_gt(game.run.kills, 0,
         "the squad's fire must actually kill enemies through the real Game._process(), not just the mirrored _simulate() reimplementation")
+
+func test_process_clamps_a_huge_delta_after_the_app_resumes_from_background():
+    # Found on Aslam's real device: minimizing the app then reopening it
+    # produced a severe FPS drop followed by an erratic spike. Root cause --
+    # Android suspends rendering while the app is backgrounded, but Godot's
+    # own clock keeps running, so the first _process() call after resume
+    # receives one huge delta representing the entire backgrounded
+    # duration. Nothing downstream clamps it: TrackGenerator.tick's spawn
+    # catch-up loop, Units.tick's per-unit movement, and
+    # Projectiles.resolve_hits's O(units x projectiles) loop all scale
+    # directly with delta, so one call tries to simulate the whole missed
+    # interval (and every enemy it would have spawned) in a single frame --
+    # the stutter Aslam saw. Regression-proofs the clamp with a delta far
+    # larger than any real background gap this bug report could plausibly
+    # represent, so a future accidental removal of the clamp can't
+    # coincidentally still pass at a smaller value.
+    var game := _make_game()
+    game._process(3600.0)
+    assert_almost_eq(game.runner.elapsed, Game.MAX_DELTA, 0.0001,
+        "a single frame must never simulate more than Game.MAX_DELTA of game time, however large the real elapsed time was")

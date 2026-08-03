@@ -5,6 +5,18 @@ const HIT_RADIUS := 0.5
 const ENEMY_WEAPON_TIER := 0
 const ENEMY_PROJECTILE_SPEED := 25.0
 
+# First-pass value, same spirit as SteerInput.SMOOTHING/PIXELS_PER_UNIT --
+# expect to retune after more device play, not a claim of final balance.
+# Caps how much game time a single _process() call can advance. Without
+# this, backgrounding the app (Android suspends rendering but Godot's own
+# clock keeps running) delivers one enormous delta on the resume frame,
+# and every per-delta system here (TrackGenerator's spawn catch-up loop,
+# Units.tick's movement, Projectiles.resolve_hits's O(units x projectiles)
+# loop) scales directly with it -- one frame then tries to simulate the
+# entire missed duration at once. Found on a real device: minimize, then
+# reopen, produced a severe stutter followed by an erratic FPS reading.
+const MAX_DELTA := 0.1
+
 @onready var units_view: UnitsView = $UnitsView
 @onready var enemy_view: UnitsView = $EnemyView
 @onready var corridor_view: CorridorView = $CorridorView
@@ -65,6 +77,7 @@ static func _screen_delta_to_steer_delta(screen_delta_x: float) -> float:
     return -screen_delta_x
 
 func _process(delta: float) -> void:
+    delta = min(delta, MAX_DELTA)
     _time += delta
 
     for pos in generator.tick(delta, enemies.count):
