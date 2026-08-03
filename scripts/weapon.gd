@@ -6,6 +6,10 @@ const TIER_COUNT := 5
 # same way SteerInput.SMOOTHING and PIXELS_PER_UNIT were tuned post-playtest
 # in phase 1 -- these are the values that make the wiring provably correct,
 # not a claim about final balance.
+#
+# NOTE: static var, not const (Godot 4.7.1 cannot parse externally-accessed
+# const PackedArray). Treat as read-only: nothing in this codebase may write
+# to these arrays. Mutating them corrupts all Weapon instances simultaneously.
 static var TIER_FIRE_INTERVAL := PackedFloat32Array([0.5, 0.42, 0.35, 0.3, 0.25])
 static var TIER_DAMAGE := PackedFloat32Array([4.0, 5.0, 6.0, 7.0, 9.0])
 static var TIER_PROJECTILES_PER_SHOT := PackedInt32Array([1, 1, 2, 3, 4])
