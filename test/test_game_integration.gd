@@ -134,6 +134,24 @@ func test_the_scene_wires_up_its_dependencies():
     assert_not_null(game.runner, "Game must construct its own TrackRunner in _ready")
     assert_eq(game.squad.count(), Squad.STARTING_COUNT)
 
+func test_ready_pins_max_fps_so_the_display_cannot_chase_a_variable_refresh_rate():
+    # Found on Aslam's real device: repeatedly minimizing and reopening the
+    # app made the FPS readout oscillate (120, then 20-30, then 100+)
+    # across successive cycles, distinct from the backgrounding stutter
+    # Game.MAX_DELTA already fixes (that one is about simulated game time
+    # per frame; this one is about the actual render rate). project.godot
+    # has never set vsync/max_fps -- everything before this was Godot's
+    # default, which lets the engine simply follow whatever refresh rate
+    # the display negotiates. Modern phones with adaptive/variable refresh
+    # panels (90Hz/120Hz) renegotiate that rate on each resume from the
+    # background, which is consistent with an oscillating readout across
+    # repeated minimize/reopen cycles rather than a single stable value.
+    # Pinning Engine.max_fps removes that dependency: the engine targets a
+    # fixed rate regardless of what the display does around a resume.
+    _make_game()
+    assert_eq(Engine.max_fps, 60,
+        "Game._ready() must pin a fixed max_fps so render rate can't drift with the display's own adaptive refresh negotiation")
+
 func test_input_drag_actually_steers_the_squad():
     # CORRECTED after real phone play found the controls felt backwards.
     # This test originally asserted centre_x > 1.0 here -- i.e. that a

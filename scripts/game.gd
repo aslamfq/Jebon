@@ -41,6 +41,16 @@ var _drag_base := 0.0
 var _time := 0.0
 
 func _ready() -> void:
+    # Pins the render rate to a fixed target instead of letting the engine
+    # follow whatever refresh rate the display negotiates. project.godot has
+    # never set this (Godot's own default is uncapped/display-follows), which
+    # is fine on a fixed-refresh monitor but not on a phone with an
+    # adaptive/variable refresh panel: those renegotiate their rate on every
+    # resume from the background, which is what produced the oscillating FPS
+    # readout (120, then 20-30, then 100+ across successive minimize/reopen
+    # cycles) Aslam saw on a real device. Distinct from MAX_DELTA above,
+    # which caps simulated game time per frame, not the actual render rate.
+    Engine.max_fps = 60
     squad = Squad.new()
     steer = SteerInput.new()
     runner = TrackRunner.new()
