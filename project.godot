@@ -17,3 +17,4 @@ window/handheld/orientation=1
 
 renderer/rendering_method="mobile"
 renderer/rendering_method.mobile="mobile"
+textures/vram_compression/import_etc2_astc=true
