@@ -15,9 +15,8 @@ for the full design and the pivot's history.
 
 - **Phase 1 — steering and scroll** is merged to `main`: a squad you can steer down a scrolling
   corridor, camera derived and verified, Android export working.
-- **Phase 2 — guns and enemies** is on branch `onrush-phase-2`, pending its final review before
-  merge: weapon tiers, enemy crowds, both projectile pools, a device performance pass on a real
-  phone.
+- **Phase 2 — guns and enemies** is merged to `main`: weapon tiers, enemy crowds, both projectile
+  pools, a device performance pass on a real phone.
 - Gates, hazards, art, and audio are not built yet. See the design doc's Build Order for what's next.
 
 ## Requirements
