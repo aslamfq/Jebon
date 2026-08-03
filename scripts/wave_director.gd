@@ -29,7 +29,7 @@ func tick(delta: float, live_count: int) -> PackedVector2Array:
         wave += 1
 
     var spawns := PackedVector2Array()
-    var headroom := Horde.MAX_ZOMBIES - live_count
+    var headroom := Units.MAX_UNITS - live_count
     var interval := _spawn_interval()
 
     _spawn_clock += delta

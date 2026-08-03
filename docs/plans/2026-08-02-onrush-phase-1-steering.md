@@ -1410,6 +1410,25 @@ If steering feels bad, tune `SteerInput.SMOOTHING`, `SteerInput.PIXELS_PER_UNIT`
 **Deliberate deviations from the spec, recorded here:**
 
 1. `RunState` is not adapted in this plan. It currently carries a wave counter, and there is no fail state yet for it to record. `TrackRunner.distance` covers the HUD's needs. It returns when enemies do.
-2. `Projectiles`, `Weapon`, `WaveDirector` and `ProjectileView` are left untouched and unused on `main`. They are correct and tested; they get adapted when guns and enemies arrive. Deleting or rewriting them now would be churn.
+2. `Weapon` and `ProjectileView` are left untouched and unused. They are correct and tested, and get adapted when guns and enemies arrive.
+
+**Correction, found during execution of Task 3.** An earlier version of this note also claimed
+`Projectiles` and `WaveDirector` would be left untouched. That was wrong and self-contradictory:
+Task 3 deletes `Horde`, and both of those reference it — `wave_director.gd` reads
+`Horde.MAX_ZOMBIES`, and `projectiles.gd` takes a `Horde` parameter. Their tests reference it too.
+Both are therefore migrated to `Units` as part of Task 3.
+
+**The migration is not a rename, and the difference is dangerous.** Both `spawn` functions take
+three arguments, but the meanings moved:
+
+```
+Horde.spawn(pos: Vector2, health: float, speed: float)
+Units.spawn(pos: Vector2, velocity: Vector2, health: float)
+```
+
+A call site translated by pattern rather than by reading — `spawn(pos, Vector2.ZERO, 2.0)` where the
+original said `spawn(pos, 10.0, 2.0)` — silently sets health to the old speed value. It compiles and
+runs. Every call site must be read individually: the old third argument was speed and is dropped;
+the old second argument was health and becomes the new third.
 
 **Known gap.** The spec targets 60fps at full unit caps on a mid-range phone, and nothing here measures it. That is the next step's job, and it comes before gates — this plan delivers a build worth measuring.

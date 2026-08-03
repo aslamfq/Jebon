@@ -30,18 +30,18 @@ func tick(delta: float, despawn_radius: float) -> void:
 
 # Naive nested loop by design. Phase 3 replaces the inner scan with a radial
 # broadphase behind this same signature, guarded by these tests.
-func resolve_hits(horde: Horde, hit_radius: float, damage: float) -> int:
+func resolve_hits(units: Units, hit_radius: float, damage: float) -> int:
     var kills := 0
     var radius_sq := hit_radius * hit_radius
     var i := 0
     while i < count:
         var hit_index := -1
-        for j in horde.count:
-            if positions[i].distance_squared_to(horde.positions[j]) <= radius_sq:
+        for j in units.count:
+            if positions[i].distance_squared_to(units.positions[j]) <= radius_sq:
                 hit_index = j
                 break
         if hit_index >= 0:
-            kills += horde.damage_at(horde.positions[hit_index], 0.001, damage)
+            kills += units.damage_at(units.positions[hit_index], 0.001, damage)
             _remove_at(i)
             continue
         i += 1

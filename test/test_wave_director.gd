@@ -42,12 +42,12 @@ func test_different_seeds_diverge():
 
 func test_respects_the_concurrency_cap():
     var d := WaveDirector.new(42)
-    var spawns := d.tick(60.0, Horde.MAX_ZOMBIES)
+    var spawns := d.tick(60.0, Units.MAX_UNITS)
     assert_eq(spawns.size(), 0, "must not spawn past the cap")
 
 func test_spawns_only_up_to_remaining_headroom():
     var d := WaveDirector.new(42)
-    var spawns := d.tick(60.0, Horde.MAX_ZOMBIES - 3)
+    var spawns := d.tick(60.0, Units.MAX_UNITS - 3)
     assert_eq(spawns.size(), 3, "must fill the available headroom exactly")
 
 func test_difficulty_escalates():
