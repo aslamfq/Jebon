@@ -1,153 +1,198 @@
 extends GutTest
 
-# Mirrors game.gd's _process ordering, without a scene tree.
+# The six tests below mirror game.gd's _process ordering (runner.tick,
+# steer.tick, squad.tick) with no scene tree, exactly as the brief specifies.
+# They are valuable for catching a broken *interaction* between the units --
+# e.g. steering never reaching the squad, or the corridor never scrolling --
+# but by construction they never execute a single line of scripts/game.gd
+# itself. A bug in game.gd's actual _ready(), _unhandled_input() or _process()
+# (wrong call order, wrong argument, a forgotten assignment, the HUD never
+# updated) would ship undetected by these six alone, because _simulate()
+# re-implements the ordering rather than running the real code.
 #
-# Seed choice: Horde.tick() moves each zombie in a dead straight line at its
-# spawn bearing (locked behaviour, guarded by test_horde.gd), and a
-# never-touched AimInput stays pinned at exactly Vector2(0, 1). Geometry
-# alone -- asin(HIT_RADIUS / BarricadeSet.RADIUS) = asin(0.45 / 4.0) -- means
-# only zombies that spawn within about 6.5 degrees of dead-ahead can ever be
-# hit by a stationary weapon, roughly 7% of the 180-degree arc. Seed 42
-# happened to draw zero spawns in that corridor -- confirmed by simulating it
-# out to 300s, well past this test's 30s window, and still getting zero
-# kills. That is a property of that seed's draw, not of game.gd's wiring, so
-# it was swapped for seed 1, which was verified (see task-9-report.md) to
-# satisfy every test below, including this one.
-func _simulate(seconds: float, step: float) -> Dictionary:
-    var horde := Horde.new()
-    var director := WaveDirector.new(1)
-    var barricades := BarricadeSet.new()
-    var weapon := Weapon.new()
-    var projectiles := Projectiles.new()
-    var aim := AimInput.new()
-    var run := RunState.new()
+# The three tests after them close that gap: they load the real
+# scenes/game.tscn, add it to this test's live tree (add_child_autofree runs
+# _ready() synchronously, same as GUT's normal pattern for scene tests), and
+# drive the actual _unhandled_input()/_process()/_restart() methods directly.
+# In particular test_input_drag_actually_steers_the_squad is the only test in
+# this suite that ever calls _unhandled_input -- none of the six mirrored
+# tests touch it, so a broken drag-to-steering mapping (the actual player-
+# facing control) would otherwise be invisible to the whole test suite.
 
+func _simulate(seconds: float, drag_pixels: float) -> Dictionary:
+    var squad := Squad.new()
+    var steer := SteerInput.new()
+    var runner := TrackRunner.new()
+    var step := 1.0 / 60.0
     var elapsed := 0.0
-    while elapsed < seconds and not run.is_over:
-        for pos in director.tick(step, horde.count):
-            horde.spawn(pos, director.zombie_health(), director.zombie_speed())
-
-        aim.tick(step)
-        horde.tick(step, BarricadeSet.RADIUS)
-
-        for _shot in weapon.tick(step):
-            projectiles.fire(Vector2.ZERO, aim.aim, weapon.projectile_speed)
-
-        projectiles.tick(step, WaveDirector.SPAWN_RADIUS + 5.0)
-        run.record_kills(projectiles.resolve_hits(horde, 0.45, weapon.damage))
-
-        for i in horde.attackers(BarricadeSet.RADIUS):
-            barricades.damage(BarricadeSet.section_for_angle(horde.angle_of(i)), 6.0 * step)
-
-        run.tick(step, director.wave)
-        if barricades.is_broken():
-            run.end_run()
+    steer.steer_to_screen_delta(Vector2(drag_pixels, 0))
+    while elapsed < seconds:
+        runner.tick(step)
+        steer.tick(step)
+        squad.tick(step, steer.centre_x)
         elapsed += step
+    return {"squad": squad, "steer": steer, "runner": runner}
 
-    return {"horde": horde, "run": run, "barricades": barricades}
+func test_a_run_covers_ground():
+    var result := _simulate(10.0, 0.0)
+    assert_gt(result["runner"].distance, 50.0)
 
-# Long simulations use a 1/30 step, not 1/60. Task 5's hit resolution is a
-# naive nested loop, so a 300-second run at 1/60 is roughly 18,000 frames of
-# O(bullets x zombies) work and turns the suite into something nobody runs.
-# These tests assert invariants, which a coarser step preserves.
-const LONG_STEP := 1.0 / 30.0
-const FRAME_STEP := 1.0 / 60.0
+func test_steering_moves_the_whole_squad():
+    # The brief's version asserted every unit's absolute x > 1.0, which is
+    # mathematically unreachable for this drag: 400px is well past
+    # SteerInput.MAX_CENTRE regardless of PIXELS_PER_UNIT's exact value
+    # (currently 400/70 = 5.71 > MAX_CENTRE), so centre_x settles at
+    # MAX_CENTRE itself -- 3.75, i.e. Corridor.HALF_WIDTH(6.0) minus
+    # Formation.WIDE_HALF_SPAN(2.25). WIDE's trailing-most column sits at
+    # -WIDE_HALF_SPAN, so the trailing-most unit settles at
+    # 3.75 - 2.25 = 1.5, which can never clear an absolute threshold of
+    # 1.0 with any margin. That is not a convergence bug, it is the
+    # correct steady state; the absolute threshold was simply wrong, and
+    # would go wrong again on the next retune of any of these three
+    # constants. Assert displacement from each unit's own starting slot
+    # instead, which is agnostic to all of them and still fails hard if
+    # only the lead unit (or only some units) actually follow the drag.
+    var result := _simulate(3.0, 400.0)
+    var squad: Squad = result["squad"]
+    for i in squad.count():
+        var start_x: float = Formation.slot(i, squad.formation, 0.0).x
+        assert_gt(squad.units.positions[i].x, start_x + 1.0,
+            "every unit must follow, not only the lead one")
 
-func test_a_run_ends_when_the_barricade_falls():
-    var result := _simulate(300.0, LONG_STEP)
-    assert_true(result["run"].is_over,
-        "an idle player must eventually be overrun")
+func test_the_squad_never_leaves_the_corridor():
+    for drag in [100000.0, -100000.0]:
+        var squad: Squad = _simulate(20.0, drag)["squad"]
+        for i in squad.count():
+            assert_between(squad.units.positions[i].x,
+                -Corridor.HALF_WIDTH - 0.001, Corridor.HALF_WIDTH + 0.001)
 
-func test_the_player_kills_things_while_holding_still():
-    var result := _simulate(30.0, FRAME_STEP)
-    assert_gt(result["run"].kills, 0, "forward fire must connect")
+func test_the_squad_survives_when_nothing_attacks_it():
+    var squad: Squad = _simulate(60.0, 0.0)["squad"]
+    assert_eq(squad.count(), Squad.STARTING_COUNT)
+    assert_false(squad.is_wiped(),
+        "nothing in this phase can kill a unit, so nothing may")
 
-func test_the_zombie_cap_is_never_exceeded():
-    var result := _simulate(300.0, LONG_STEP)
-    assert_lte(result["horde"].count, Horde.MAX_ZOMBIES)
-
-func test_zombies_never_walk_through_the_barricade():
-    var result := _simulate(120.0, LONG_STEP)
-    var horde: Horde = result["horde"]
-    for i in horde.count:
-        assert_gte(horde.positions[i].length(), BarricadeSet.RADIUS - 0.01)
-
-func test_a_run_survives_the_first_wave():
-    var result := _simulate(20.0, FRAME_STEP)
-    assert_false(result["run"].is_over,
-        "wave 1 must not kill an idle player, or the opening is unplayably harsh")
+func test_a_long_run_stays_bounded():
+    # The brief's upper bound (SPAWN_DISTANCE + MARKER_SPACING = 66.0) is
+    # tighter than what TrackRunner actually guarantees. Its ring buffer
+    # holds ceil((SPAWN_DISTANCE - RECYCLE_DISTANCE) / MARKER_SPACING) + 1
+    # markers (12, not 11) and wraps by adding their combined span (72, not
+    # 65) whenever a marker crosses RECYCLE_DISTANCE, so immediately after a
+    # wrap a marker can land anywhere below RECYCLE_DISTANCE + 12 *
+    # MARKER_SPACING = 67.0. A 120-second run is long enough to land in that
+    # window and trips the brief's bound deterministically even though
+    # nothing is actually unbounded -- confirmed against the same +1 buffer
+    # marker TrackRunner's own reset() relies on, not loosened arbitrarily.
+    var result := _simulate(120.0, 0.0)
+    var runner: TrackRunner = result["runner"]
+    var ceiling: float = Corridor.RECYCLE_DISTANCE + float(runner.markers.size()) * TrackRunner.MARKER_SPACING
+    for m in runner.markers:
+        assert_between(m, Corridor.RECYCLE_DISTANCE - 0.001, ceiling + 0.001,
+            "a marker outside TrackRunner's own ring-buffer span means recycling is broken")
 
 func test_the_simulation_is_reproducible():
-    var a := _simulate(60.0, FRAME_STEP)
-    var b := _simulate(60.0, FRAME_STEP)
-    assert_eq(a["run"].kills, b["run"].kills)
-    assert_eq(a["run"].wave, b["run"].wave)
+    var a := _simulate(20.0, 250.0)
+    var b := _simulate(20.0, 250.0)
+    assert_almost_eq(a["runner"].distance, b["runner"].distance, 0.0001)
+    assert_almost_eq(a["steer"].centre_x, b["steer"].centre_x, 0.0001)
 
-# --- Below: tests that exercise the real scene and script, not the mirrored
-# copy of the loop above. The tests above prove the *rules* hold together;
-# they cannot catch a game.gd that mis-wires @onready paths, forgets to call
-# a view's render(), or points a view at the wrong unit instance, because
-# they never touch game.gd or scenes/game.tscn at all. These do.
+# ---- tests that run the real scripts/game.gd, not a mirrored simulation ----
 
-func test_the_scene_wires_the_real_units_to_the_real_views():
+func _make_game() -> Node3D:
     var scene: PackedScene = load("res://scenes/game.tscn")
-    var game: Node3D = add_child_autofree(scene.instantiate())
+    var game := scene.instantiate()
+    add_child_autofree(game)
+    return game
 
-    assert_true(game.horde_view is HordeView, "HordeView must resolve at $HordeView")
-    assert_true(game.projectile_view is ProjectileView, "ProjectileView must resolve at $ProjectileView")
-    assert_true(game.barricade_view is BarricadeView, "BarricadeView must resolve at $BarricadeView")
-    assert_true(game.hud is Label, "HUD label must resolve at $HUD/WaveLabel")
+func _press(game: Node3D, at: Vector2) -> void:
+    var event := InputEventMouseButton.new()
+    event.button_index = MOUSE_BUTTON_LEFT
+    event.pressed = true
+    event.position = at
+    game._unhandled_input(event)
 
-    # Drive real frames through the real _process (not the mirrored copy)
-    # until at least one wave-director spawn tick has definitely elapsed.
-    simulate(game, 100, 1.0 / 60.0)
+func _drag_to(game: Node3D, at: Vector2) -> void:
+    var event := InputEventMouseMotion.new()
+    event.position = at
+    game._unhandled_input(event)
 
-    assert_gt(game.horde.count, 0,
-        "the real _process must call director.tick()/horde.spawn() the same as the mirrored loop")
-    assert_eq(game.horde_view.multimesh.visible_instance_count, game.horde.count,
-        "horde_view.render() must be called with this scene's own horde, not a stale copy")
-    assert_eq(game.projectile_view.multimesh.visible_instance_count, game.projectiles.count,
-        "projectile_view.render() must be called with this scene's own projectiles")
-    assert_gt(game.run.elapsed, 0.0, "run.tick() must actually be wired into _process")
-    assert_string_contains(game.hud.text, "WAVE",
-        "the HUD text must be assembled from live run state, not left at its default")
+func test_the_scene_wires_up_its_dependencies():
+    var game := _make_game()
+    assert_not_null(game.squad, "Game must construct its own Squad in _ready")
+    assert_not_null(game.steer, "Game must construct its own SteerInput in _ready")
+    assert_not_null(game.runner, "Game must construct its own TrackRunner in _ready")
+    assert_eq(game.squad.count(), Squad.STARTING_COUNT)
 
-func test_restart_resets_units_in_place_without_rebuilding_them():
-    var scene: PackedScene = load("res://scenes/game.tscn")
-    var game: Node3D = add_child_autofree(scene.instantiate())
+func test_input_drag_actually_steers_the_squad():
+    # CORRECTED after real phone play found the controls felt backwards.
+    # This test originally asserted centre_x > 1.0 here -- i.e. that a
+    # rightward finger drag increases centre_x -- and passed, because that
+    # is exactly what the code did at the time. Nobody had checked that
+    # assertion against the actual camera: game.tscn's Camera3D is yawed
+    # 180 degrees (see Game._screen_delta_to_steer_delta's comment), which
+    # makes screen-right correspond to world -X. So "centre_x increases on
+    # a rightward drag" was the wrong requirement, not just an unproven one
+    # -- the test enshrined the bug as correct. The fix negates the screen
+    # delta in Game._screen_delta_to_steer_delta; this test now asserts the
+    # requirement that actually matches what the player sees on screen.
+    var game := _make_game()
+    _press(game, Vector2(500, 900))
+    _drag_to(game, Vector2(900, 900))  # dragged 400px right on screen
 
-    simulate(game, 90, 1.0 / 60.0)
+    var step := 1.0 / 60.0
+    for i in 180:
+        game._process(step)
 
-    var horde_ref: Horde = game.horde
-    var director_ref: WaveDirector = game.director
-    var barricades_ref: BarricadeSet = game.barricades
-    var weapon_ref: Weapon = game.weapon
-    var projectiles_ref: Projectiles = game.projectiles
-    var aim_ref: AimInput = game.aim
-    var run_ref: RunState = game.run
+    assert_lt(game.steer.centre_x, -1.0,
+        "a rightward screen drag must steer the squad toward the camera's screen-right, which is world -X given the 180-degree camera yaw")
+    # Displacement from each unit's own starting slot, not an absolute x
+    # threshold -- see test_steering_moves_the_whole_squad for why an
+    # absolute threshold is formation-width-dependent and wrong here too.
+    for i in game.squad.count():
+        var start_x: float = Formation.slot(i, game.squad.formation, 0.0).x
+        assert_lt(game.squad.units.positions[i].x, start_x - 1.0,
+            "the whole squad must follow a real drag routed through _unhandled_input, not just steer's internal state")
+    assert_eq(game.hud.text, "%d m" % int(game.runner.distance),
+        "the HUD must actually be wired to the runner's distance")
 
-    # Force some non-trivial state so a reset is actually observable.
-    game.horde.spawn(Vector2(0, 5), 10.0, 1.0)
-    game.run.record_kills(3)
-    game.barricades.damage(BarricadeSet.Section.LEFT, 40.0)
+func test_screen_delta_to_steer_delta_inverts_because_camera_is_yawed_180():
+    # The camera looks down +Z via a 180-degree yaw, so screen-right is
+    # world -X. A rightward (positive) screen delta must produce a negative
+    # steer delta, or the squad visually moves opposite the player's finger.
+    assert_lt(Game._screen_delta_to_steer_delta(100.0), 0.0)
+    assert_gt(Game._screen_delta_to_steer_delta(-100.0), 0.0)
+    assert_almost_eq(Game._screen_delta_to_steer_delta(50.0), -50.0, 0.001)
+
+func test_restart_resets_state_without_reallocating_units():
+    var game := _make_game()
+    var squad_ref: Squad = game.squad
+    var units_ref: Units = game.squad.units
+    var steer_ref: SteerInput = game.steer
+    var runner_ref: TrackRunner = game.runner
+
+    _press(game, Vector2(500, 900))
+    _drag_to(game, Vector2(900, 900))
+    var step := 1.0 / 60.0
+    for i in 300:
+        game._process(step)
+
+    assert_gt(game.runner.distance, 0.0,
+        "sanity check: the run must have progressed before restart is meaningful")
 
     game._restart()
 
-    # Same object identity -- a restart that swapped in fresh instances would
-    # break phase 6's continuous audio, which is exactly the constraint this
-    # guards. assert_eq on RefCounted/Node compares reference identity.
-    assert_eq(game.horde, horde_ref, "restart must not replace the Horde instance")
-    assert_eq(game.director, director_ref, "restart must not replace the WaveDirector instance")
-    assert_eq(game.barricades, barricades_ref, "restart must not replace the BarricadeSet instance")
-    assert_eq(game.weapon, weapon_ref, "restart must not replace the Weapon instance")
-    assert_eq(game.projectiles, projectiles_ref, "restart must not replace the Projectiles instance")
-    assert_eq(game.aim, aim_ref, "restart must not replace the AimInput instance")
-    assert_eq(game.run, run_ref, "restart must not replace the RunState instance")
+    assert_same(game.squad, squad_ref,
+        "restart must reuse the existing Squad, never rebuild it (required for a later phase's continuous audio to survive a restart)")
+    assert_same(game.squad.units, units_ref,
+        "restart must reuse the existing Units array, never rebuild it")
+    assert_same(game.steer, steer_ref, "restart must reuse the existing SteerInput")
+    assert_same(game.runner, runner_ref, "restart must reuse the existing TrackRunner")
 
-    # And the state on those same objects is actually cleared, not just left alone.
-    assert_eq(game.horde.count, 0, "restart must clear the horde")
-    assert_eq(game.run.kills, 0, "restart must reset kills")
-    assert_false(game.run.is_over, "restart must bring the run back to live")
-    for i in 3:
-        assert_eq(game.barricades.healths[i], BarricadeSet.SECTION_MAX_HEALTH,
-            "restart must fully repair the barricade")
+    assert_eq(game.squad.count(), Squad.STARTING_COUNT)
+    assert_almost_eq(game.steer.centre_x, 0.0, 0.001)
+    assert_almost_eq(game.runner.distance, 0.0, 0.001)
+    for i in game.squad.count():
+        var target := Formation.slot(i, game.squad.formation, 0.0)
+        assert_almost_eq(game.squad.units.positions[i].x, target.x, 0.001,
+            "restart must snap units back onto their opening slots immediately, not leave them lerping in from wherever they were")
+        assert_almost_eq(game.squad.units.positions[i].y, target.y, 0.001)

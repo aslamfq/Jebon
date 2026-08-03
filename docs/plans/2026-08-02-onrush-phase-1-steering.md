@@ -544,11 +544,24 @@ static func slot(index: int, kind: int, centre_x: float) -> Vector2:
     var x: float = clamp(centre_x + offset.x, -Corridor.HALF_WIDTH, Corridor.HALF_WIDTH)
     return Vector2(x, offset.y)
 
+# CORRECTED during execution. The original version here filled rows raster
+# left-to-right, which put index 0 at a row's LEFT edge and failed this plan's
+# own test_first_unit_sits_at_the_centre_line_in_a_column. Centre-outward fill
+# is also what the growth-stability goal actually wants: the first unit of a new
+# row appears on the centre line rather than jumping to an edge.
+# Assumes an odd column count, which is what makes a true centre column exist;
+# both callers pass odd numbers (3 and 11).
 static func _grid_offset(index: int, columns: int) -> Vector2:
     var row := index / columns
     var col := index % columns
-    var x := (float(col) - float(columns - 1) * 0.5) * SPACING
+    var x := float(_centered_column(col)) * SPACING
     return Vector2(x, -float(row) * SPACING)
+
+static func _centered_column(col: int) -> int:
+    if col == 0:
+        return 0
+    var magnitude := (col + 1) / 2
+    return magnitude if col % 2 == 1 else -magnitude
 
 # Row r holds r+1 units, so the crowd forms a triangle with its point forward.
 static func _wedge_offset(index: int) -> Vector2:
@@ -814,12 +827,29 @@ func test_units_converge_on_their_slots():
         assert_almost_eq(squad.units.positions[i].x, target.x, 0.05)
         assert_almost_eq(squad.units.positions[i].y, target.y, 0.05)
 
+# CORRECTED during execution. The original asserted every unit ends up beyond
+# x = 2.0 with the centre at 4.0 — which demands a formation with no width.
+# WIDE spans +/-4.5, so its three leftmost slots land at -0.5, 0.4 and 1.3 and
+# the test could not pass against any correct Squad. The intent was right; the
+# assertion was not. This version tests the same intent and is clamp-aware.
 func test_the_squad_follows_a_moving_centre():
+    # Settle at centre zero, remember where every unit sits, then move the
+    # centre and settle again.
+    for i in 200:
+        squad.tick(1.0 / 60.0, 0.0)
+    var before := PackedFloat32Array()
+    for i in squad.count():
+        before.append(squad.units.positions[i].x)
+
     for i in 200:
         squad.tick(1.0 / 60.0, 4.0)
+
     for i in squad.count():
-        assert_gt(squad.units.positions[i].x, 2.0,
-            "the whole squad must travel with the centre, not just its lead unit")
+        var target := Formation.slot(i, squad.formation, 4.0)
+        assert_almost_eq(squad.units.positions[i].x, target.x, 0.05,
+            "every unit must converge on its own slot for the new centre")
+        assert_gt(squad.units.positions[i].x, before[i] - 0.001,
+            "no unit may drift left when the centre moves right")
 
 func test_convergence_is_gradual_not_instant():
     squad.tick(1.0 / 60.0, 5.0)
@@ -1410,6 +1440,25 @@ If steering feels bad, tune `SteerInput.SMOOTHING`, `SteerInput.PIXELS_PER_UNIT`
 **Deliberate deviations from the spec, recorded here:**
 
 1. `RunState` is not adapted in this plan. It currently carries a wave counter, and there is no fail state yet for it to record. `TrackRunner.distance` covers the HUD's needs. It returns when enemies do.
-2. `Projectiles`, `Weapon`, `WaveDirector` and `ProjectileView` are left untouched and unused on `main`. They are correct and tested; they get adapted when guns and enemies arrive. Deleting or rewriting them now would be churn.
+2. `Weapon` and `ProjectileView` are left untouched and unused. They are correct and tested, and get adapted when guns and enemies arrive.
+
+**Correction, found during execution of Task 3.** An earlier version of this note also claimed
+`Projectiles` and `WaveDirector` would be left untouched. That was wrong and self-contradictory:
+Task 3 deletes `Horde`, and both of those reference it — `wave_director.gd` reads
+`Horde.MAX_ZOMBIES`, and `projectiles.gd` takes a `Horde` parameter. Their tests reference it too.
+Both are therefore migrated to `Units` as part of Task 3.
+
+**The migration is not a rename, and the difference is dangerous.** Both `spawn` functions take
+three arguments, but the meanings moved:
+
+```
+Horde.spawn(pos: Vector2, health: float, speed: float)
+Units.spawn(pos: Vector2, velocity: Vector2, health: float)
+```
+
+A call site translated by pattern rather than by reading — `spawn(pos, Vector2.ZERO, 2.0)` where the
+original said `spawn(pos, 10.0, 2.0)` — silently sets health to the old speed value. It compiles and
+runs. Every call site must be read individually: the old third argument was speed and is dropped;
+the old second argument was health and becomes the new third.
 
 **Known gap.** The spec targets 60fps at full unit caps on a mid-range phone, and nothing here measures it. That is the next step's job, and it comes before gates — this plan delivers a build worth measuring.

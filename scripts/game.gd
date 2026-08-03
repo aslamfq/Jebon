@@ -1,79 +1,57 @@
-extends Node3D
+class_name Game extends Node3D
 
-const HIT_RADIUS := 0.45
-const ZOMBIE_DPS := 6.0
-const DESPAWN_MARGIN := 5.0
+@onready var units_view: UnitsView = $UnitsView
+@onready var corridor_view: CorridorView = $CorridorView
+@onready var hud: Label = $HUD/DistanceLabel
 
-@onready var horde_view: HordeView = $HordeView
-@onready var projectile_view: ProjectileView = $ProjectileView
-@onready var barricade_view: BarricadeView = $BarricadeView
-@onready var hud: Label = $HUD/WaveLabel
-
-var horde: Horde
-var director: WaveDirector
-var barricades: BarricadeSet
-var weapon: Weapon
-var projectiles: Projectiles
-var aim: AimInput
-var run: RunState
+var squad: Squad
+var steer: SteerInput
+var runner: TrackRunner
 
 var _dragging := false
 var _drag_origin := Vector2.ZERO
+var _drag_base := 0.0
 var _time := 0.0
 
 func _ready() -> void:
-    horde = Horde.new()
-    director = WaveDirector.new(randi())
-    barricades = BarricadeSet.new()
-    weapon = Weapon.new()
-    projectiles = Projectiles.new()
-    aim = AimInput.new()
-    run = RunState.new()
-    run.load_best()
+    squad = Squad.new()
+    steer = SteerInput.new()
+    runner = TrackRunner.new()
 
 func _unhandled_input(event: InputEvent) -> void:
     if event is InputEventScreenTouch or event is InputEventMouseButton:
         _dragging = event.pressed
         if event.pressed:
             _drag_origin = event.position
+            _drag_base = steer.centre_x
     elif _dragging and (event is InputEventScreenDrag or event is InputEventMouseMotion):
-        aim.aim_at_screen_delta(event.position - _drag_origin)
+        var moved: float = _screen_delta_to_steer_delta(event.position.x - _drag_origin.x)
+        steer.steer_to_screen_delta(
+            Vector2(moved + _drag_base * SteerInput.PIXELS_PER_UNIT, 0))
+
+# The Camera3D in game.tscn is yawed 180 degrees (rotation_degrees.y = 180)
+# so it can look down +Z instead of Godot's default -Z -- this game's
+# "forward" is +Z (see Corridor/Formation). That yaw flips the camera's
+# local right vector relative to world +X: screen-right corresponds to
+# world -X, not world +X. Feeding a raw screen-space drag straight into a
+# world-space steer target therefore moves the squad opposite the finger.
+# Found via actual phone play; no automated check catches this, because it
+# depends on the camera's orientation, which SteerInput deliberately knows
+# nothing about. See test_screen_delta_to_steer_delta_inverts_because_camera_is_yawed_180.
+static func _screen_delta_to_steer_delta(screen_delta_x: float) -> float:
+    return -screen_delta_x
 
 func _process(delta: float) -> void:
     _time += delta
+    runner.tick(delta)
+    steer.tick(delta)
+    squad.tick(delta, steer.centre_x)
 
-    for pos in director.tick(delta, horde.count):
-        horde.spawn(pos, director.zombie_health(), director.zombie_speed())
-
-    aim.tick(delta)
-    horde.tick(delta, BarricadeSet.RADIUS)
-
-    for _shot in weapon.tick(delta):
-        projectiles.fire(Vector2.ZERO, aim.aim, weapon.projectile_speed)
-
-    projectiles.tick(delta, WaveDirector.SPAWN_RADIUS + DESPAWN_MARGIN)
-    run.record_kills(projectiles.resolve_hits(horde, HIT_RADIUS, weapon.damage))
-
-    for i in horde.attackers(BarricadeSet.RADIUS):
-        barricades.damage(BarricadeSet.section_for_angle(horde.angle_of(i)), ZOMBIE_DPS * delta)
-
-    run.tick(delta, director.wave)
-
-    if barricades.is_broken():
-        _restart()
-
-    horde_view.render(horde, _time)
-    projectile_view.render(projectiles)
-    barricade_view.render(barricades)
-    hud.text = "WAVE %d    KILLS %d    BEST %d" % [run.wave, run.kills, run.best_wave]
+    units_view.render(squad.units, _time)
+    corridor_view.render(runner)
+    hud.text = "%d m" % int(runner.distance)
 
 func _restart() -> void:
-    run.end_run()
-    run.save_best()
-    run.reset()
-    horde.clear()
-    projectiles.clear()
-    barricades.reset()
-    director.reset()
-    weapon.reset()
-    aim.reset()
+    squad.reset()
+    steer.reset()
+    runner.reset()
