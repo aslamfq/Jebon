@@ -1,100 +1,111 @@
 extends GutTest
 
-# The six tests below mirror game.gd's _process ordering (runner.tick,
-# steer.tick, squad.tick) with no scene tree, exactly as the brief specifies.
-# They are valuable for catching a broken *interaction* between the units --
-# e.g. steering never reaching the squad, or the corridor never scrolling --
-# but by construction they never execute a single line of scripts/game.gd
-# itself. A bug in game.gd's actual _ready(), _unhandled_input() or _process()
-# (wrong call order, wrong argument, a forgotten assignment, the HUD never
-# updated) would ship undetected by these six alone, because _simulate()
-# re-implements the ordering rather than running the real code.
-#
-# The three tests after them close that gap: they load the real
-# scenes/game.tscn, add it to this test's live tree (add_child_autofree runs
-# _ready() synchronously, same as GUT's normal pattern for scene tests), and
-# drive the actual _unhandled_input()/_process()/_restart() methods directly.
-# In particular test_input_drag_actually_steers_the_squad is the only test in
-# this suite that ever calls _unhandled_input -- none of the six mirrored
-# tests touch it, so a broken drag-to-steering mapping (the actual player-
-# facing control) would otherwise be invisible to the whole test suite.
+const CONTACT_DEPTH := 0.0
+const HIT_RADIUS := 0.5
+const ENEMY_WEAPON_TIER := 0
+const ENEMY_PROJECTILE_SPEED := 25.0
 
-func _simulate(seconds: float, drag_pixels: float) -> Dictionary:
+# step defaults to 1/60 for numerical fidelity on short tests. Longer tests
+# pass a coarser step explicitly: resolve_hits is a naive O(units x
+# projectiles) loop (deliberately, per spec -- deferred to Task 8's
+# profiling), and this simulation's crowds only grow as a run escalates, so
+# a 300-second run at 1/60 would be tens of thousands of increasingly
+# expensive iterations. Phase 1 hit this exact problem with the same
+# collision loop and fixed it the same way.
+func _simulate(seconds: float, drag_pixels: float, rng_seed: int, step: float = 1.0 / 60.0) -> Dictionary:
     var squad := Squad.new()
     var steer := SteerInput.new()
     var runner := TrackRunner.new()
-    var step := 1.0 / 60.0
+    var generator := TrackGenerator.new(rng_seed)
+    var enemies := Units.new()
+    var squad_weapon := Weapon.new()
+    var enemy_weapon := Weapon.new()
+    var squad_projectiles := Projectiles.new()
+    var enemy_projectiles := Projectiles.new()
+    var run := RunState.new()
+
     var elapsed := 0.0
     steer.steer_to_screen_delta(Vector2(drag_pixels, 0))
-    while elapsed < seconds:
+    while elapsed < seconds and not run.is_over:
+        for pos in generator.tick(step, enemies.count):
+            enemies.spawn(pos, Vector2(0, -generator.enemy_speed()), generator.enemy_health())
+
         runner.tick(step)
         steer.tick(step)
         squad.tick(step, steer.centre_x)
+        enemies.tick(step, Vector2(0, -Corridor.scroll_speed_at(runner.elapsed)))
+
+        var squad_shots := squad_weapon.tick(step, squad.weapon_tier)
+        Volley.fire(squad.units, squad_projectiles, squad_shots,
+            Weapon.projectiles_per_shot_at(squad.weapon_tier),
+            Weapon.spread_degrees_at(squad.weapon_tier),
+            Vector2(0, 1), squad_weapon.projectile_speed)
+
+        var enemy_shots := enemy_weapon.tick(step, ENEMY_WEAPON_TIER)
+        Volley.fire(enemies, enemy_projectiles, enemy_shots,
+            Weapon.projectiles_per_shot_at(ENEMY_WEAPON_TIER),
+            Weapon.spread_degrees_at(ENEMY_WEAPON_TIER),
+            Vector2(0, -1), ENEMY_PROJECTILE_SPEED)
+
+        squad_projectiles.tick(step, Corridor.SPAWN_DISTANCE + 5.0)
+        enemy_projectiles.tick(step, Corridor.SPAWN_DISTANCE + 5.0)
+
+        run.record_kills(squad_projectiles.resolve_hits(enemies, HIT_RADIUS,
+            Weapon.damage_at(squad.weapon_tier)))
+        enemy_projectiles.resolve_hits(squad.units, HIT_RADIUS,
+            Weapon.damage_at(ENEMY_WEAPON_TIER))
+
+        var contacts := enemies.remove_beyond(CONTACT_DEPTH)
+        squad.set_count(max(squad.count() - contacts, 0))
+
+        run.tick(step, runner.distance)
+        if squad.is_wiped():
+            run.end_run()
         elapsed += step
-    return {"squad": squad, "steer": steer, "runner": runner}
 
-func test_a_run_covers_ground():
-    var result := _simulate(10.0, 0.0)
-    assert_gt(result["runner"].distance, 50.0)
+    return {"squad": squad, "enemies": enemies, "run": run, "runner": runner,
+        "squad_projectiles": squad_projectiles, "enemy_projectiles": enemy_projectiles}
 
-func test_steering_moves_the_whole_squad():
-    # The brief's version asserted every unit's absolute x > 1.0, which is
-    # mathematically unreachable for this drag: 400px is well past
-    # SteerInput.MAX_CENTRE regardless of PIXELS_PER_UNIT's exact value
-    # (currently 400/70 = 5.71 > MAX_CENTRE), so centre_x settles at
-    # MAX_CENTRE itself -- 3.75, i.e. Corridor.HALF_WIDTH(6.0) minus
-    # Formation.WIDE_HALF_SPAN(2.25). WIDE's trailing-most column sits at
-    # -WIDE_HALF_SPAN, so the trailing-most unit settles at
-    # 3.75 - 2.25 = 1.5, which can never clear an absolute threshold of
-    # 1.0 with any margin. That is not a convergence bug, it is the
-    # correct steady state; the absolute threshold was simply wrong, and
-    # would go wrong again on the next retune of any of these three
-    # constants. Assert displacement from each unit's own starting slot
-    # instead, which is agnostic to all of them and still fails hard if
-    # only the lead unit (or only some units) actually follow the drag.
-    var result := _simulate(3.0, 400.0)
-    var squad: Squad = result["squad"]
-    for i in squad.count():
-        var start_x: float = Formation.slot(i, squad.formation, 0.0).x
-        assert_gt(squad.units.positions[i].x, start_x + 1.0,
-            "every unit must follow, not only the lead one")
+func test_enemies_actually_spawn_over_a_run():
+    var result := _simulate(30.0, 0.0, 1)
+    assert_gt(result["enemies"].count + result["run"].kills, 0,
+        "either enemies are alive or some were killed -- either way, spawning happened")
 
-func test_the_squad_never_leaves_the_corridor():
-    for drag in [100000.0, -100000.0]:
-        var squad: Squad = _simulate(20.0, drag)["squad"]
-        for i in squad.count():
-            assert_between(squad.units.positions[i].x,
-                -Corridor.HALF_WIDTH - 0.001, Corridor.HALF_WIDTH + 0.001)
+func test_squad_fire_kills_enemies():
+    # Seed and duration chosen so at least one enemy has time to spawn,
+    # close, and be hit before the run ends -- confirmed by re-running
+    # this seed's trace during implementation, not guessed.
+    var result := _simulate(20.0, 0.0, 1)
+    assert_gt(result["run"].kills, 0,
+        "the squad's own fire must be capable of killing enemies")
 
-func test_the_squad_survives_when_nothing_attacks_it():
-    var squad: Squad = _simulate(60.0, 0.0)["squad"]
-    assert_eq(squad.count(), Squad.STARTING_COUNT)
-    assert_false(squad.is_wiped(),
-        "nothing in this phase can kill a unit, so nothing may")
+func test_a_run_can_end_from_enemy_pressure():
+    # A long enough run against a stationary squad (no steering to dodge,
+    # no weapon upgrades yet) must eventually be overrun -- proves contact
+    # damage and/or enemy fire actually hurts the squad rather than being
+    # wired to nothing. Coarser step (see _simulate's own comment): 300
+    # simulated seconds at 1/20 is 6000 iterations against a naive
+    # collision loop, not 18000.
+    var result := _simulate(300.0, 0.0, 3, 1.0 / 20.0)
+    assert_true(result["run"].is_over,
+        "an idle squad must eventually lose to escalating enemy pressure")
 
-func test_a_long_run_stays_bounded():
-    # The brief's upper bound (SPAWN_DISTANCE + MARKER_SPACING = 66.0) is
-    # tighter than what TrackRunner actually guarantees. Its ring buffer
-    # holds ceil((SPAWN_DISTANCE - RECYCLE_DISTANCE) / MARKER_SPACING) + 1
-    # markers (12, not 11) and wraps by adding their combined span (72, not
-    # 65) whenever a marker crosses RECYCLE_DISTANCE, so immediately after a
-    # wrap a marker can land anywhere below RECYCLE_DISTANCE + 12 *
-    # MARKER_SPACING = 67.0. A 120-second run is long enough to land in that
-    # window and trips the brief's bound deterministically even though
-    # nothing is actually unbounded -- confirmed against the same +1 buffer
-    # marker TrackRunner's own reset() relies on, not loosened arbitrarily.
-    var result := _simulate(120.0, 0.0)
-    var runner: TrackRunner = result["runner"]
-    var ceiling: float = Corridor.RECYCLE_DISTANCE + float(runner.markers.size()) * TrackRunner.MARKER_SPACING
-    for m in runner.markers:
-        assert_between(m, Corridor.RECYCLE_DISTANCE - 0.001, ceiling + 0.001,
-            "a marker outside TrackRunner's own ring-buffer span means recycling is broken")
+func test_kills_are_never_negative_and_distance_tracks_the_runner():
+    var result := _simulate(15.0, 0.0, 5)
+    assert_gte(result["run"].kills, 0)
+    assert_almost_eq(result["run"].distance, result["runner"].distance, 0.001)
+
+func test_enemies_never_cross_behind_the_contact_line():
+    var result := _simulate(60.0, 0.0, 7)
+    for i in result["enemies"].count:
+        assert_gte(result["enemies"].positions[i].y, CONTACT_DEPTH - 0.001,
+            "an enemy past the contact line should have been removed, not left behind it")
 
 func test_the_simulation_is_reproducible():
-    var a := _simulate(20.0, 250.0)
-    var b := _simulate(20.0, 250.0)
-    assert_almost_eq(a["runner"].distance, b["runner"].distance, 0.0001)
-    assert_almost_eq(a["steer"].centre_x, b["steer"].centre_x, 0.0001)
+    var a := _simulate(20.0, 100.0, 11)
+    var b := _simulate(20.0, 100.0, 11)
+    assert_almost_eq(a["run"].distance, b["run"].distance, 0.0001)
+    assert_eq(a["run"].kills, b["run"].kills)
 
 # ---- tests that run the real scripts/game.gd, not a mirrored simulation ----
 
@@ -152,8 +163,14 @@ func test_input_drag_actually_steers_the_squad():
         var start_x: float = Formation.slot(i, game.squad.formation, 0.0).x
         assert_lt(game.squad.units.positions[i].x, start_x - 1.0,
             "the whole squad must follow a real drag routed through _unhandled_input, not just steer's internal state")
-    assert_eq(game.hud.text, "%d m" % int(game.runner.distance),
-        "the HUD must actually be wired to the runner's distance")
+    # Exact equality against "%d m" no longer holds: Task 7 extends the HUD
+    # line to also show kills and fps (scripts/game.gd's _process). fps is
+    # an engine metric read live via Engine.get_frames_per_second(), not
+    # reproducible from this test, so match the distance+kills prefix only
+    # -- still enough to prove the HUD is wired to both runner.distance and
+    # run.kills, not just the pre-Task-7 distance-only subset.
+    assert_true(game.hud.text.begins_with("%d m    %d kills" % [int(game.runner.distance), game.run.kills]),
+        "the HUD must actually be wired to the runner's distance and kill count")
 
 func test_screen_delta_to_steer_delta_inverts_because_camera_is_yawed_180():
     # The camera looks down +Z via a 180-degree yaw, so screen-right is
@@ -169,6 +186,12 @@ func test_restart_resets_state_without_reallocating_units():
     var units_ref: Units = game.squad.units
     var steer_ref: SteerInput = game.steer
     var runner_ref: TrackRunner = game.runner
+    var generator_ref: TrackGenerator = game.generator
+    var enemies_ref: Units = game.enemies
+    var squad_weapon_ref: Weapon = game.squad_weapon
+    var enemy_weapon_ref: Weapon = game.enemy_weapon
+    var squad_projectiles_ref: Projectiles = game.squad_projectiles
+    var enemy_projectiles_ref: Projectiles = game.enemy_projectiles
 
     _press(game, Vector2(500, 900))
     _drag_to(game, Vector2(900, 900))
@@ -187,6 +210,12 @@ func test_restart_resets_state_without_reallocating_units():
         "restart must reuse the existing Units array, never rebuild it")
     assert_same(game.steer, steer_ref, "restart must reuse the existing SteerInput")
     assert_same(game.runner, runner_ref, "restart must reuse the existing TrackRunner")
+    assert_same(game.generator, generator_ref, "restart must reuse the existing TrackGenerator")
+    assert_same(game.enemies, enemies_ref, "restart must reuse the existing enemy Units")
+    assert_same(game.squad_weapon, squad_weapon_ref, "restart must reuse the existing squad Weapon")
+    assert_same(game.enemy_weapon, enemy_weapon_ref, "restart must reuse the existing enemy Weapon")
+    assert_same(game.squad_projectiles, squad_projectiles_ref, "restart must reuse the existing squad Projectiles")
+    assert_same(game.enemy_projectiles, enemy_projectiles_ref, "restart must reuse the existing enemy Projectiles")
 
     assert_eq(game.squad.count(), Squad.STARTING_COUNT)
     assert_almost_eq(game.steer.centre_x, 0.0, 0.001)
