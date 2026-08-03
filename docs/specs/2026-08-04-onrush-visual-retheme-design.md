@@ -1,13 +1,13 @@
-# Onrush — visual re-theme design
+# Jebon! — visual re-theme design
 
 Design agreed with Aslam on 2026-08-04. First of three planned sub-projects toward an adventurer-RPG
-reskin of Onrush (weapon classes and enemy-roster progression are separate, later specs). This one
+reskin of Jebon! (weapon classes and enemy-roster progression are separate, later specs). This one
 extends `2026-08-02-onrush-design.md` rather than superseding it — the corridor-runner mechanics
 underneath are unchanged.
 
 ## In plain English
 
-Onrush currently renders everyone as flat-colour capsules and spheres on a grey corridor: fast to
+Jebon! currently renders everyone as flat-colour capsules and spheres on a grey corridor: fast to
 build, deliberately placeholder. Aslam downloaded a set of free, license-clear asset packs (KayKit
 adventurers and skeletons, a Quaternius medieval village kit, a CC0 projectile-effects pack) and wants
 the game to actually look like an adventuring party fighting skeletons down a village path, ahead of

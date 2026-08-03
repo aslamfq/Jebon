@@ -1,4 +1,4 @@
-# Onrush — design
+# Jebon! — design
 
 Design agreed with Aslam on 2026-08-02. Working title.
 
@@ -10,7 +10,7 @@ replaces" section below before treating anything in the older document as curren
 
 Skip the rest if you just need the gist.
 
-Onrush is a free mobile game with no ads and no in-app purchases. A squad of little soldiers runs
+Jebon! is a free mobile game with no ads and no in-app purchases. A squad of little soldiers runs
 forward down a corridor on its own, firing ahead on its own. You drag left and right to steer them.
 
 Gates come at you in pairs, one on each side, and you pick one by steering into it. Some change how

@@ -1,4 +1,4 @@
-# Onrush
+# Jebon!
 
 A free mobile crowd-runner for Android. No ads, no in-app purchases, no monetisation of any kind —
 that's a deliberate choice, not a gap to fill later.
@@ -8,7 +8,7 @@ and right to steer. Enemy crowds come the other way and shoot back. When your la
 run ends, you see how far you got, and you're straight back in.
 
 The repo is still named `Holdout` after an earlier design (a fixed-position horde defence); the game
-itself is now called Onrush. See [`docs/specs/2026-08-02-onrush-design.md`](docs/specs/2026-08-02-onrush-design.md)
+itself is now called Jebon!. See [`docs/specs/2026-08-02-onrush-design.md`](docs/specs/2026-08-02-onrush-design.md)
 for the full design and the pivot's history.
 
 ## Status
