@@ -13,9 +13,11 @@ func test_starts_centred():
 # converged on the exact position PIXELS_PER_UNIT implies, not merely landed somewhere
 # positive. An implementation with the wrong pixel-to-unit scale, or one that only
 # partially applies the drag, would still pass a bare assert_gt but fails the almost_eq
-# below. Drag magnitude (90px = 1.0 unit) is chosen to stay comfortably inside
-# SteerInput.MAX_CENTRE (1.5 units) so this test measures the pixel-to-unit
-# conversion, not the wall clamp -- that clamp gets its own test below.
+# below. Drag magnitude (90px) is fixed rather than derived from PIXELS_PER_UNIT itself
+# so a future retune of that constant can't silently make this drag land exactly on
+# SteerInput.MAX_CENTRE's wall clamp -- 90 / SteerInput.PIXELS_PER_UNIT must stay well
+# inside MAX_CENTRE for this test to measure the pixel-to-unit conversion rather than
+# the clamp, which gets its own test below.
 func test_dragging_right_moves_right():
     steer.steer_to_screen_delta(Vector2(90, 0))
     for i in 120:

@@ -38,16 +38,20 @@ func test_a_run_covers_ground():
     assert_gt(result["runner"].distance, 50.0)
 
 func test_steering_moves_the_whole_squad():
-    # The brief's version asserts every unit's absolute x > 1.0, which is
-    # mathematically unreachable for this drag: WIDE spans 11 columns out to
-    # +-4.5 either side of centre_x, and 400px only pulls centre_x to
-    # 400.0 / SteerInput.PIXELS_PER_UNIT = 4.44 -- the trailing-most unit
-    # (offset -4.5) settles at 4.44 - 4.5 = -0.06, which can never clear 1.0
-    # no matter how long the sim runs. That is not a convergence bug, it is
-    # the correct steady state; the absolute threshold was simply wrong.
-    # Assert displacement from each unit's own starting slot instead, which
-    # is formation-width-agnostic and still fails hard if only the lead unit
-    # (or only some units) actually follow the drag.
+    # The brief's version asserted every unit's absolute x > 1.0, which is
+    # mathematically unreachable for this drag: 400px is well past
+    # SteerInput.MAX_CENTRE regardless of PIXELS_PER_UNIT's exact value
+    # (currently 400/70 = 5.71 > MAX_CENTRE), so centre_x settles at
+    # MAX_CENTRE itself -- 3.75, i.e. Corridor.HALF_WIDTH(6.0) minus
+    # Formation.WIDE_HALF_SPAN(2.25). WIDE's trailing-most column sits at
+    # -WIDE_HALF_SPAN, so the trailing-most unit settles at
+    # 3.75 - 2.25 = 1.5, which can never clear an absolute threshold of
+    # 1.0 with any margin. That is not a convergence bug, it is the
+    # correct steady state; the absolute threshold was simply wrong, and
+    # would go wrong again on the next retune of any of these three
+    # constants. Assert displacement from each unit's own starting slot
+    # instead, which is agnostic to all of them and still fails hard if
+    # only the lead unit (or only some units) actually follow the drag.
     var result := _simulate(3.0, 400.0)
     var squad: Squad = result["squad"]
     for i in squad.count():
