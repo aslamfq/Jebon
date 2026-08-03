@@ -114,14 +114,16 @@ func test_reset_recentres_and_clears_the_pending_target():
 # wall value AND the identical row -- several distinct starting units
 # collapse onto one exact point, which is exactly what the human playtester
 # saw first. (Checking x alone is not the right property: unit 0, column 0
-# row 0, and unit 11, column 0 row 1, legitimately share an x because they
-# are stacked in the same column -- that is ordinary grid layout, not the
-# bug. The bug is two units sharing a full position.) Drives the real
-# Squad/SteerInput pair the way game.gd does (steer.tick then squad.tick
-# each frame) to full deflection in both directions, lets slot-lerp settle,
-# and asserts no two live units occupy the same point. A reverted fix
-# (clamping centre_x to the bare Corridor.HALF_WIDTH) fails this: five
-# row-0 columns per side land on the identical clamped point.
+# row 0, and unit 6, column 0 row 1 (WIDE_COLUMNS is 6), legitimately share
+# an x because they are stacked in the same column -- that is ordinary grid
+# layout, not the bug. The bug is two units sharing a full position.) Drives
+# the real Squad/SteerInput pair the way game.gd does (steer.tick then
+# squad.tick each frame) to full deflection in both directions, lets
+# slot-lerp settle, and asserts no two live units occupy the same point. A
+# reverted fix (clamping centre_x to the bare Corridor.HALF_WIDTH) fails
+# this: three of WIDE's six row-0 columns have a positive offset (see
+# Formation.WIDE_HALF_SPAN), so three per side land on the identical
+# clamped point.
 func test_full_deflection_never_stacks_two_wide_units_on_the_same_point():
     for drag_pixels in [100000.0, -100000.0]:
         var squad := Squad.new()

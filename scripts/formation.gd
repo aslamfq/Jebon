@@ -3,7 +3,7 @@ class_name Formation extends RefCounted
 enum Kind { WIDE = 0, COLUMN = 1, WEDGE = 2 }
 
 const SPACING := 0.9
-const WIDE_COLUMNS := 11
+const WIDE_COLUMNS := 6
 const COLUMN_COLUMNS := 3
 
 # Half the width WIDE's outermost column sits from centre_x. WIDE is the
@@ -26,21 +26,40 @@ static func slot(index: int, kind: int, centre_x: float) -> Vector2:
 	var x: float = clamp(centre_x + offset.x, -Corridor.HALF_WIDTH, Corridor.HALF_WIDTH)
 	return Vector2(x, offset.y)
 
-# Fills each row from its centre outward (0, +1, -1, +2, -2, ...) rather than
-# raster left-to-right, so the first unit in any row lands on x=0 instead of
-# the row's left edge. columns is assumed odd (both callers pass 3 and 11),
-# which is what makes a true centre column exist to start from.
+# Fills each row from its centre outward rather than raster left-to-right,
+# so the first unit in any row lands at the centre instead of the row's left
+# edge -- important for a growing squad, since it means a half-full row
+# still looks centred rather than jammed against one side.
 static func _grid_offset(index: int, columns: int) -> Vector2:
 	var row := index / columns
 	var col := index % columns
-	var x := float(_centered_column(col)) * SPACING
+	var x := _centered_offset(col, columns) * SPACING
 	return Vector2(x, -float(row) * SPACING)
 
-static func _centered_column(col: int) -> int:
-	if col == 0:
-		return 0
-	var magnitude := (col + 1) / 2
-	return magnitude if col % 2 == 1 else -magnitude
+# Maps a raster column (0..columns-1) to its signed offset in units of
+# SPACING from the row's centre, in centre-outward fill order.
+#
+# Originally this only handled an odd `columns`, where an integer centre
+# column exists (offset 0) to start from: 0, +1, -1, +2, -2, ... An even
+# `columns` has no integer centre -- the two most-central columns sit at
+# +0.5 and -0.5 either side of it -- and was never actually exercised until
+# WIDE_COLUMNS became 6, so the gap went unnoticed. Generalised here to
+# cover both parities, which also closes a previously-deferred concern
+# (formation.gd used to assume odd counts silently).
+#
+# Either way the FULLY FILLED row ends up symmetric and evenly spaced --
+# {-2,-1,0,1,2} for 5 columns, {-2.5,-1.5,-0.5,0.5,1.5,2.5} for 6 -- only the
+# fill ORDER differs between parities.
+static func _centered_offset(col: int, columns: int) -> float:
+	if columns % 2 == 1:
+		if col == 0:
+			return 0.0
+		var magnitude := (col + 1) / 2
+		return float(magnitude if col % 2 == 1 else -magnitude)
+	else:
+		var pair := col / 2
+		var half := 0.5 + float(pair)
+		return half if col % 2 == 0 else -half
 
 # Row r holds r+1 units, so the crowd forms a triangle with its point forward.
 static func _wedge_offset(index: int) -> Vector2:
