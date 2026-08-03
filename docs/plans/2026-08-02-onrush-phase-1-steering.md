@@ -827,12 +827,29 @@ func test_units_converge_on_their_slots():
         assert_almost_eq(squad.units.positions[i].x, target.x, 0.05)
         assert_almost_eq(squad.units.positions[i].y, target.y, 0.05)
 
+# CORRECTED during execution. The original asserted every unit ends up beyond
+# x = 2.0 with the centre at 4.0 — which demands a formation with no width.
+# WIDE spans +/-4.5, so its three leftmost slots land at -0.5, 0.4 and 1.3 and
+# the test could not pass against any correct Squad. The intent was right; the
+# assertion was not. This version tests the same intent and is clamp-aware.
 func test_the_squad_follows_a_moving_centre():
+    # Settle at centre zero, remember where every unit sits, then move the
+    # centre and settle again.
+    for i in 200:
+        squad.tick(1.0 / 60.0, 0.0)
+    var before := PackedFloat32Array()
+    for i in squad.count():
+        before.append(squad.units.positions[i].x)
+
     for i in 200:
         squad.tick(1.0 / 60.0, 4.0)
+
     for i in squad.count():
-        assert_gt(squad.units.positions[i].x, 2.0,
-            "the whole squad must travel with the centre, not just its lead unit")
+        var target := Formation.slot(i, squad.formation, 4.0)
+        assert_almost_eq(squad.units.positions[i].x, target.x, 0.05,
+            "every unit must converge on its own slot for the new centre")
+        assert_gt(squad.units.positions[i].x, before[i] - 0.001,
+            "no unit may drift left when the centre moves right")
 
 func test_convergence_is_gradual_not_instant():
     squad.tick(1.0 / 60.0, 5.0)
