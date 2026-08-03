@@ -1,4 +1,4 @@
-extends Node3D
+class_name Game extends Node3D
 
 @onready var units_view: UnitsView = $UnitsView
 @onready var corridor_view: CorridorView = $CorridorView
@@ -25,9 +25,21 @@ func _unhandled_input(event: InputEvent) -> void:
             _drag_origin = event.position
             _drag_base = steer.centre_x
     elif _dragging and (event is InputEventScreenDrag or event is InputEventMouseMotion):
-        var moved: float = event.position.x - _drag_origin.x
+        var moved: float = _screen_delta_to_steer_delta(event.position.x - _drag_origin.x)
         steer.steer_to_screen_delta(
             Vector2(moved + _drag_base * SteerInput.PIXELS_PER_UNIT, 0))
+
+# The Camera3D in game.tscn is yawed 180 degrees (rotation_degrees.y = 180)
+# so it can look down +Z instead of Godot's default -Z -- this game's
+# "forward" is +Z (see Corridor/Formation). That yaw flips the camera's
+# local right vector relative to world +X: screen-right corresponds to
+# world -X, not world +X. Feeding a raw screen-space drag straight into a
+# world-space steer target therefore moves the squad opposite the finger.
+# Found via actual phone play; no automated check catches this, because it
+# depends on the camera's orientation, which SteerInput deliberately knows
+# nothing about. See test_screen_delta_to_steer_delta_inverts_because_camera_is_yawed_180.
+static func _screen_delta_to_steer_delta(screen_delta_x: float) -> float:
+    return -screen_delta_x
 
 func _process(delta: float) -> void:
     _time += delta

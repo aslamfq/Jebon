@@ -120,25 +120,44 @@ func test_the_scene_wires_up_its_dependencies():
     assert_eq(game.squad.count(), Squad.STARTING_COUNT)
 
 func test_input_drag_actually_steers_the_squad():
+    # CORRECTED after real phone play found the controls felt backwards.
+    # This test originally asserted centre_x > 1.0 here -- i.e. that a
+    # rightward finger drag increases centre_x -- and passed, because that
+    # is exactly what the code did at the time. Nobody had checked that
+    # assertion against the actual camera: game.tscn's Camera3D is yawed
+    # 180 degrees (see Game._screen_delta_to_steer_delta's comment), which
+    # makes screen-right correspond to world -X. So "centre_x increases on
+    # a rightward drag" was the wrong requirement, not just an unproven one
+    # -- the test enshrined the bug as correct. The fix negates the screen
+    # delta in Game._screen_delta_to_steer_delta; this test now asserts the
+    # requirement that actually matches what the player sees on screen.
     var game := _make_game()
     _press(game, Vector2(500, 900))
-    _drag_to(game, Vector2(900, 900))  # dragged 400px right
+    _drag_to(game, Vector2(900, 900))  # dragged 400px right on screen
 
     var step := 1.0 / 60.0
     for i in 180:
         game._process(step)
 
-    assert_gt(game.steer.centre_x, 1.0,
-        "a real rightward drag through _unhandled_input must move centre_x right")
+    assert_lt(game.steer.centre_x, -1.0,
+        "a rightward screen drag must steer the squad toward the camera's screen-right, which is world -X given the 180-degree camera yaw")
     # Displacement from each unit's own starting slot, not an absolute x
     # threshold -- see test_steering_moves_the_whole_squad for why an
     # absolute threshold is formation-width-dependent and wrong here too.
     for i in game.squad.count():
         var start_x: float = Formation.slot(i, game.squad.formation, 0.0).x
-        assert_gt(game.squad.units.positions[i].x, start_x + 1.0,
+        assert_lt(game.squad.units.positions[i].x, start_x - 1.0,
             "the whole squad must follow a real drag routed through _unhandled_input, not just steer's internal state")
     assert_eq(game.hud.text, "%d m" % int(game.runner.distance),
         "the HUD must actually be wired to the runner's distance")
+
+func test_screen_delta_to_steer_delta_inverts_because_camera_is_yawed_180():
+    # The camera looks down +Z via a 180-degree yaw, so screen-right is
+    # world -X. A rightward (positive) screen delta must produce a negative
+    # steer delta, or the squad visually moves opposite the player's finger.
+    assert_lt(Game._screen_delta_to_steer_delta(100.0), 0.0)
+    assert_gt(Game._screen_delta_to_steer_delta(-100.0), 0.0)
+    assert_almost_eq(Game._screen_delta_to_steer_delta(50.0), -50.0, 0.001)
 
 func test_restart_resets_state_without_reallocating_units():
     var game := _make_game()
