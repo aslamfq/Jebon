@@ -544,11 +544,24 @@ static func slot(index: int, kind: int, centre_x: float) -> Vector2:
     var x: float = clamp(centre_x + offset.x, -Corridor.HALF_WIDTH, Corridor.HALF_WIDTH)
     return Vector2(x, offset.y)
 
+# CORRECTED during execution. The original version here filled rows raster
+# left-to-right, which put index 0 at a row's LEFT edge and failed this plan's
+# own test_first_unit_sits_at_the_centre_line_in_a_column. Centre-outward fill
+# is also what the growth-stability goal actually wants: the first unit of a new
+# row appears on the centre line rather than jumping to an edge.
+# Assumes an odd column count, which is what makes a true centre column exist;
+# both callers pass odd numbers (3 and 11).
 static func _grid_offset(index: int, columns: int) -> Vector2:
     var row := index / columns
     var col := index % columns
-    var x := (float(col) - float(columns - 1) * 0.5) * SPACING
+    var x := float(_centered_column(col)) * SPACING
     return Vector2(x, -float(row) * SPACING)
+
+static func _centered_column(col: int) -> int:
+    if col == 0:
+        return 0
+    var magnitude := (col + 1) / 2
+    return magnitude if col % 2 == 1 else -magnitude
 
 # Row r holds r+1 units, so the crowd forms a triangle with its point forward.
 static func _wedge_offset(index: int) -> Vector2:
