@@ -1,4 +1,4 @@
-class_name HordeView extends MultiMeshInstance3D
+class_name UnitsView extends MultiMeshInstance3D
 
 const BOB_HEIGHT := 0.12
 const BOB_SPEED := 9.0
