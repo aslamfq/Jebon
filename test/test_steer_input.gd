@@ -13,21 +13,23 @@ func test_starts_centred():
 # converged on the exact position PIXELS_PER_UNIT implies, not merely landed somewhere
 # positive. An implementation with the wrong pixel-to-unit scale, or one that only
 # partially applies the drag, would still pass a bare assert_gt but fails the almost_eq
-# below.
+# below. Drag magnitude (90px = 1.0 unit) is chosen to stay comfortably inside
+# SteerInput.MAX_CENTRE (1.5 units) so this test measures the pixel-to-unit
+# conversion, not the wall clamp -- that clamp gets its own test below.
 func test_dragging_right_moves_right():
-    steer.steer_to_screen_delta(Vector2(180, 0))
+    steer.steer_to_screen_delta(Vector2(90, 0))
     for i in 120:
         steer.tick(1.0 / 60.0)
     assert_gt(steer.centre_x, 0.0)
-    assert_almost_eq(steer.centre_x, 180.0 / SteerInput.PIXELS_PER_UNIT, 0.001)
+    assert_almost_eq(steer.centre_x, 90.0 / SteerInput.PIXELS_PER_UNIT, 0.001)
 
 # Mirrors the strengthening above on the other side.
 func test_dragging_left_moves_left():
-    steer.steer_to_screen_delta(Vector2(-180, 0))
+    steer.steer_to_screen_delta(Vector2(-90, 0))
     for i in 120:
         steer.tick(1.0 / 60.0)
     assert_lt(steer.centre_x, 0.0)
-    assert_almost_eq(steer.centre_x, -180.0 / SteerInput.PIXELS_PER_UNIT, 0.001)
+    assert_almost_eq(steer.centre_x, -90.0 / SteerInput.PIXELS_PER_UNIT, 0.001)
 
 func test_vertical_drag_is_ignored():
     steer.steer_to_screen_delta(Vector2(0, 500))
@@ -51,14 +53,17 @@ func test_never_leaves_the_corridor_in_either_direction():
 
 # Strengthens the brief's loose "< HALF_WIDTH * 0.9" bound with the exact value the
 # exp() formula predicts for one frame at 1/60s. A raw lerp(a, b, SMOOTHING * delta)
-# produces a noticeably different position here (1.4 vs ~1.249) and would still pass the
-# brief's loose bound, so that bound alone does not prove the exp() form is in use.
+# produces a noticeably different position here and would still pass the brief's loose
+# bound, so that bound alone does not prove the exp() form is in use.
 func test_movement_is_smoothed_not_instant():
     steer.steer_to_screen_delta(Vector2(100000, 0))
     steer.tick(1.0 / 60.0)
     assert_lt(steer.centre_x, Corridor.HALF_WIDTH * 0.9,
         "one frame must not teleport the squad across the corridor")
-    var target_x: float = Corridor.HALF_WIDTH # the drag is clamped to the wall
+    # A huge drag clamps to SteerInput.MAX_CENTRE, not the raw corridor wall --
+    # MAX_CENTRE reserves room for the WIDE formation's half-span so its outer
+    # slots never need Formation.slot's own clamp during ordinary play.
+    var target_x: float = SteerInput.MAX_CENTRE
     var t: float = 1.0 - exp(-SteerInput.SMOOTHING * (1.0 / 60.0))
     var expected_x: float = target_x * t
     assert_almost_eq(steer.centre_x, expected_x, 0.001,
@@ -99,3 +104,38 @@ func test_reset_recentres_and_clears_the_pending_target():
     steer.tick(1.0 / 60.0)
     assert_almost_eq(steer.centre_x, 0.0, 0.001,
         "a stale target must not drag the squad back off centre after a reset")
+
+# The regression test for the actual finding: at full deflection, centre_x
+# alone staying inside +-Corridor.HALF_WIDTH (as every test above checks) is
+# not enough. Formation.slot adds up to +-Formation.WIDE_HALF_SPAN on top of
+# centre_x and clamps that sum to the same corridor edge, so if centre_x is
+# allowed to reach the wall itself, every row-0 WIDE column whose offset is
+# positive (or negative, on the other side) gets clamped to the identical
+# wall value AND the identical row -- several distinct starting units
+# collapse onto one exact point, which is exactly what the human playtester
+# saw first. (Checking x alone is not the right property: unit 0, column 0
+# row 0, and unit 11, column 0 row 1, legitimately share an x because they
+# are stacked in the same column -- that is ordinary grid layout, not the
+# bug. The bug is two units sharing a full position.) Drives the real
+# Squad/SteerInput pair the way game.gd does (steer.tick then squad.tick
+# each frame) to full deflection in both directions, lets slot-lerp settle,
+# and asserts no two live units occupy the same point. A reverted fix
+# (clamping centre_x to the bare Corridor.HALF_WIDTH) fails this: five
+# row-0 columns per side land on the identical clamped point.
+func test_full_deflection_never_stacks_two_wide_units_on_the_same_point():
+    for drag_pixels in [100000.0, -100000.0]:
+        var squad := Squad.new()
+        var s := SteerInput.new()
+        s.steer_to_screen_delta(Vector2(drag_pixels, 0))
+        for i in 600:
+            s.tick(1.0 / 60.0)
+            squad.tick(1.0 / 60.0, s.centre_x)
+        assert_eq(squad.formation, Formation.Kind.WIDE,
+            "this regression is specific to the WIDE starting formation")
+        var seen_points := {}
+        for i in squad.count():
+            var p: Vector2 = squad.units.positions[i].snapped(Vector2(0.0001, 0.0001))
+            assert_false(seen_points.has(p),
+                "units %s and %d both landed on %s at full deflection (drag=%s)"
+                    % [seen_points.get(p), i, p, drag_pixels])
+            seen_points[p] = i

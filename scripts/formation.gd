@@ -6,6 +6,12 @@ const SPACING := 0.9
 const WIDE_COLUMNS := 11
 const COLUMN_COLUMNS := 3
 
+# Half the width WIDE's outermost column sits from centre_x. WIDE is the
+# widest formation, so this is the margin SteerInput must reserve at the
+# corridor edge: if centre_x itself never gets closer to the wall than this,
+# no WIDE slot ever needs the clamp below during ordinary play.
+const WIDE_HALF_SPAN := (WIDE_COLUMNS - 1) / 2.0 * SPACING
+
 # Slot position is a function of index alone, so an existing unit never moves
 # when the squad grows. Ranks extend backwards (negative y) from the centre.
 static func slot(index: int, kind: int, centre_x: float) -> Vector2:
