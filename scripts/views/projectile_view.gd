@@ -152,6 +152,22 @@ func render(projectiles: Projectiles) -> void:
         # actual death location, matching what the design doc claims.
         if not _bursting[i]:
             instance.position = Vector3(projectiles.positions[i].x, 0.8, projectiles.positions[i].y)
+            # The prefab's own launch() (never called here -- see the
+            # call_deferred comment in _ready() for why) is what normally
+            # orients it to face its travel direction; skipping launch()
+            # to avoid its physics side effects also skipped this, so
+            # every pooled instance kept whatever orientation it imported
+            # with regardless of which way it was actually moving. Fine by
+            # coincidence for the squad's own forward-firing bolts, visibly
+            # backwards for the enemy's, which travel the opposite way --
+            # reported from a real device. Same basis construction as the
+            # prefab's launch(), replicated here instead of calling it.
+            var vel := projectiles.velocities[i]
+            if vel.length_squared() > 0.0001:
+                var dir3 := Vector3(vel.x, 0.0, vel.y).normalized()
+                var right := Vector3(0, 1, 0).cross(dir3).normalized()
+                var up := dir3.cross(right).normalized()
+                instance.basis = Basis(right, up, dir3)
     for i in range(pooled, _pool.size()):
         if _pool[i].visible and not _bursting[i]:
             _pool[i].visible = false
