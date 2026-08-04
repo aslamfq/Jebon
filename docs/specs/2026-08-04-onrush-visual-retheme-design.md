@@ -13,7 +13,9 @@ adventurers and skeletons, a Quaternius medieval village kit, a CC0 projectile-e
 the game to actually look like an adventuring party fighting skeletons down a village path, ahead of
 building the class/spell system that comes next.
 
-This pass swaps what the existing views draw. It does not touch a single line of game logic.
+This pass swaps what the existing views draw. It does not touch any *existing* game logic — the one
+addition, `Projectiles` reporting where a projectile ended so its impact effect can play there, is new
+surface area rather than a behaviour change (see Architecture).
 
 ## Why this comes first
 
@@ -29,7 +31,7 @@ shared body) instead of being reskinned again later.
 | Squad units | KayKit Adventurers 2.0 (FREE) | Static mesh only this pass — no rig animation. Ships four class textures (barbarian/knight/mage/rogue) on one shared body mesh; use one texture for now (mage, since "throwing magic" is the through-line), the other three become available skins when the class system lands. |
 | Enemy units | KayKit Skeletons 1.1 (FREE) | Static mesh only. |
 | Corridor environment | Quaternius Medieval Village MegaKit (Standard/free tier) | Scenery flanking the corridor, not a rebuild of the ground/wall geometry. |
-| Projectiles | Godot Projectile Effects (inspiredsloth, itch.io, CC0) | Replaces the flat sphere mesh; the pack's own trail/smoke/embers parameters give this a "thrown magic" look for free. |
+| Projectiles | Godot Projectile Effects (inspiredsloth, itch.io, CC0) | Full particle VFX (trail, glow, impact burst on hit), not just a mesh swap — see Architecture for how that reconciles with the flat-array `Projectiles` design. |
 
 **Explicitly deferred**, each belongs to a later spec:
 - Kenney blocky-characters, Kenney graveyard-kit — enemy-roster-progression phase (blocky-characters
@@ -44,10 +46,10 @@ restriction. Record kept here since the asset files themselves won't carry it on
 
 ## Architecture
 
-**No change to any rule unit.** `Units`, `Squad`, `Formation`, `TrackGenerator`, `TrackRunner`,
-`Volley`, `Projectiles`, `Weapon`, `RunState` — every pure-logic class in `scripts/` — is untouched.
-This pass is confined to `scripts/views/` (`UnitsView`, `EnemyView`, `ProjectileView`, `CorridorView`)
-and a new `assets/` directory holding the imported packs.
+**No change to any rule unit except `Projectiles`, which gains a small additive report — see below.**
+`Units`, `Squad`, `Formation`, `TrackGenerator`, `TrackRunner`, `Volley`, `Weapon`, `RunState` are
+fully untouched. This pass is otherwise confined to `scripts/views/` (`UnitsView`, `EnemyView`,
+`ProjectileView`, `CorridorView`) and a new `assets/` directory holding the imported packs.
 
 **Asset layout.** New top-level `assets/`, one directory per pack, matching the pack's own internal
 name so a future asset update can be diffed against it:
@@ -80,6 +82,14 @@ Whichever a given asset needs, each `View._ready()` ends up with a `Mesh` it han
 `MultiMesh.mesh`, exactly like today — the `render()` methods (which set per-instance transforms
 every frame) do not change at all.
 
+**`UnitsView` and `EnemyView` currently share one script with the mesh hardcoded inside it** —
+`scenes/game.tscn`'s `EnemyView` node reuses `units_view.gd` as-is, which is fine when both draw the
+same placeholder capsule but breaks the moment squad and enemies need different meshes. `units_view.gd`
+needs an `@export var mesh: Mesh` (or `@export var mesh_path: String`, loaded in `_ready()`), left
+unset by default so nothing else using the pattern is forced to change, with `game.tscn`'s two node
+instances each pointing at their own imported mesh — the standard Godot way to let two instances of
+one script differ, not a new mechanism.
+
 **Materials ride with the mesh.** These are low-poly packs, typically one or two materials per model;
 Godot's glTF import attaches them to the mesh's surfaces automatically, so no per-instance material
 work is needed for a `MultiMesh` (all instances share the mesh's own surface materials).
@@ -92,19 +102,79 @@ facades, fences) becomes a second, coarser-spaced pool built the same way: a fix
 it) whose `z` position is recomputed from the same `runner.markers`-driven scroll math, just flanking
 the corridor at `x = ±(HALF_WIDTH + margin)` instead of tiling the floor.
 
+**Projectile VFX: why it can't be a mesh swap, and the design that reconciles it.** Each variant in
+the pack (`projectile_1.tscn` .. `projectile_4.tscn`) is a full self-driving actor: `GPUParticles3D`
+emitters for the core bolt, glow, and impact burst; a scripted ribbon trail; and its own
+`CharacterBody3D` + `CollisionShape3D` that moves itself every physics frame (`_physics_process`) and
+detects its own hits via `move_and_collide`. That collides with this project's architecture two ways:
+nothing else here has a physics collision shape at all (`Units` is flat array data, `CorridorView`'s
+walls are plain `MeshInstance3D`), so the prefab's own hit detection would never actually fire — it
+would fly through everything, forever; and letting it move itself would run a second, redundant
+position simulation next to `Projectiles.tick()`, which is the one actually authoritative for hits
+(and which just got a real accuracy fix for exactly this — swept-segment tunneling prevention).
+
+The integration that avoids both problems:
+
+- **`ProjectileView` owns a pool of pre-instantiated prefab scenes** (one `PackedScene` per pack
+  variant, `instantiate()`d up front, not per-shot — this project doesn't allocate in the hot path and
+  this shouldn't be the exception). Pool size: 64 per side (squad and enemy `ProjectileView`s each get
+  their own pool), comfortably above the 48-concurrent-projectile peak the final phase 2 review
+  measured in real play, with headroom. `Projectiles.MAX_PROJECTILES` (512) stays the logic layer's
+  hard cap; the pool is a view-layer budget, not a new gameplay limit.
+- **Each pooled instance has its physics self-movement disabled immediately after instancing**, via
+  `set_physics_process(false)` — a builtin `Node` call, no edit to the vendored script needed. Its
+  `_process(delta)` (fade/color bookkeeping) is left running; it's harmless without the physics move.
+- **`ProjectileView.render()` drives position directly**, the same way it already does for the current
+  sphere mesh: for live projectile index `i < min(count, POOL_SIZE)`, set pool instance `i`'s
+  `position` (and a facing basis, matching `UnitsView`'s existing `atan2`-based rotation) from
+  `projectiles.positions[i]` every frame. No `launch()` call, no reliance on the prefab's own movement.
+- **Overflow beyond the pool keeps the current `MultiMeshInstance3D` sphere approach as a fallback
+  layer** — indices `POOL_SIZE .. count-1` render through the existing (still present, unremoved)
+  MultiMesh path. This guarantees every live projectile is always rendered somehow regardless of how
+  many are in flight, and gives this task a working, low-risk fallback to ship even before the pooled
+  VFX piece is fully tuned.
+- **Impact bursts need to know where and when a projectile ended, which today's `Projectiles` doesn't
+  report.** `tick()`'s despawn-past-radius removals and `resolve_hits()`'s hit removals both currently
+  only affect `count`/return a kill total — nothing tells a caller *which* positions were removed this
+  call. Add a `removed_positions: PackedVector2Array` (cleared and refilled each call, matching how
+  `kills` already resets implicitly per call) that both methods append to via `_remove_at`. `ProjectileView`
+  reads it after each `tick()`/`resolve_hits()` call, and for any removed position that still maps to a
+  currently-pooled slot, plays that instance's `.explode()` (which stops the trail emitters and starts
+  the impact burst) instead of just snapping it away. This is the one piece of this pass that's a real,
+  testable logic change — GUT-covered the same as everything else in `scripts/`, unlike the rest of
+  this design.
+- **Returning a pooled instance to the pool** (after its impact burst finishes, or after a despawn with
+  no burst) resets `age = 0`, `collided = false`, hides it, and re-enables its emitters for reuse —
+  never lets the prefab's own `queue_free()` (which frees the node permanently) actually run; the pool
+  owns the instance's lifetime, not the prefab's own age timer.
+
+**Device performance is a real open question here, not a formality.** Real particle systems (up to
+128 pooled instances × ~8 `GPUParticles3D` emitters each, at the pool ceiling) are a different cost
+profile than the flat-array approach this project has been built and measured around. This task ends
+with a device performance pass on Aslam's phone, the same way Task 8 of phase 2 did — if it drops
+meaningfully, the fallback is shrinking `POOL_SIZE` (the overflow path already handles that
+gracefully) before anything more drastic.
+
 **No change to camera, lighting, or HUD.** The existing `Camera3D` framing (derived and verified in
 `docs/camera-derivation.md`) and single `DirectionalLight3D` are left as-is; if the real geometry
 turns out to need different lighting once it's in, that's a fast follow-up, not part of this design.
 
 ## Testing
 
-This is the project's first pass of work that GUT cannot meaningfully verify — there is no rule
-change to assert against, only what's on screen. Verification is manual: open the project in the
-editor, confirm each model renders (right texture, right scale relative to the corridor, no missing
-material warnings in the console), and confirm the existing 142 GUT tests are still 142/142 (they
-should be untouched, since nothing in `scripts/` outside `scripts/views/` changes — a regression there
-would mean a views-only change accidentally reached into game state, which would itself be a defect
-worth catching).
+Almost all of this pass is work GUT cannot meaningfully verify — there is no rule change to assert
+against for the character/environment/mesh swaps, only what's on screen. Verification there is
+manual: open the project in the editor, confirm each model renders (right texture, right scale
+relative to the corridor, no missing material warnings in the console), and confirm the existing 142
+GUT tests are still 142/142 untouched.
+
+The one exception is `Projectiles.removed_positions`: that's a real, testable logic addition (which
+positions were removed by a given `tick()`/`resolve_hits()` call), covered by GUT the same as
+everything else in `scripts/`, with its own deliberate-break check like every other change to this
+codebase.
+
+The projectile-VFX pooling's actual on-screen behaviour (impact bursts appearing in the right place,
+overflow fallback kicking in past the pool ceiling) is manual/visual verification, same as the rest of
+this pass — plus the device performance pass called out above.
 
 ## Deferred
 
