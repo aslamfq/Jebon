@@ -47,7 +47,20 @@ func _simulate(seconds: float, drag_pixels: float, rng_seed: int, step: float = 
             Weapon.spread_degrees_at(ENEMY_WEAPON_TIER),
             Vector2(0, -1), ENEMY_PROJECTILE_SPEED)
 
+        # Mirrors game.gd's own per-frame clears, which this helper was
+        # missing entirely: Projectiles.tick()/resolve_hits() only append to
+        # the removal reports (clearing is the caller's job, once per frame
+        # per pool), so without these every removal across the whole
+        # simulated run accumulated in both arrays -- tens of thousands of
+        # entries on the 300-second test below, none of them ever read.
+        # Projectiles.clear() now empties them too, but that only fires on
+        # restart; a frame-driving caller still owns the per-frame clear.
+        squad_projectiles.removed_positions.clear()
+        squad_projectiles.removed_previous_positions.clear()
         squad_projectiles.tick(step, Corridor.SPAWN_DISTANCE + 5.0)
+
+        enemy_projectiles.removed_positions.clear()
+        enemy_projectiles.removed_previous_positions.clear()
         enemy_projectiles.tick(step, Corridor.SPAWN_DISTANCE + 5.0)
 
         run.record_kills(squad_projectiles.resolve_hits(enemies, HIT_RADIUS,
@@ -65,6 +78,20 @@ func _simulate(seconds: float, drag_pixels: float, rng_seed: int, step: float = 
 
     return {"squad": squad, "enemies": enemies, "run": run, "runner": runner,
         "squad_projectiles": squad_projectiles, "enemy_projectiles": enemy_projectiles}
+
+func test_a_simulated_run_does_not_accumulate_removal_reports_forever():
+    # Regression guard on _simulate()'s per-frame clears above. Both removal
+    # reports are append-only within a frame and cleared by the frame driver,
+    # so at the end of a run they must hold at most the final frame's
+    # removals -- not every removal the whole run ever produced. Without the
+    # clears this run left thousands of entries behind.
+    var result := _simulate(30.0, 0.0, 1)
+    var squad_projectiles: Projectiles = result["squad_projectiles"]
+    assert_lt(squad_projectiles.removed_positions.size(), 32,
+        "the removal report must hold one frame's removals, not the whole run's")
+    assert_eq(squad_projectiles.removed_previous_positions.size(),
+        squad_projectiles.removed_positions.size(),
+        "the two reports must stay index-parallel across a whole run")
 
 func test_enemies_actually_spawn_over_a_run():
     var result := _simulate(30.0, 0.0, 1)
@@ -236,6 +263,15 @@ func test_restart_resets_state_without_reallocating_units():
     assert_same(game.enemy_projectiles, enemy_projectiles_ref, "restart must reuse the existing enemy Projectiles")
 
     assert_eq(game.squad.count(), Squad.STARTING_COUNT)
+    # _restart() happens mid-frame, before this frame's render() calls. A
+    # removal report left populated across the restart lets the wiped run's
+    # last removals still play impact bursts on the fresh run's first
+    # rendered frame.
+    assert_eq(game.squad_projectiles.removed_positions.size(), 0,
+        "restart must leave no pre-restart removals for render() to burst on")
+    assert_eq(game.squad_projectiles.removed_previous_positions.size(), 0)
+    assert_eq(game.enemy_projectiles.removed_positions.size(), 0)
+    assert_eq(game.enemy_projectiles.removed_previous_positions.size(), 0)
     assert_almost_eq(game.steer.centre_x, 0.0, 0.001)
     assert_almost_eq(game.runner.distance, 0.0, 0.001)
     for i in game.squad.count():

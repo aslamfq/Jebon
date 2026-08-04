@@ -1,0 +1,108 @@
+[gd_scene format=3 uid="uid://cd18fupvrsbx4"]
+
+[ext_resource type="Script" uid="uid://bllnp5qrmx03j" path="res://projectiles/scripts/demo.gd" id="1_r82y5"]
+[ext_resource type="Texture2D" uid="uid://clwqihcmt82op" path="res://projectiles/textures/checker1.png" id="2_4ppfd"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_r82y5"]
+size = Vector3(30, 1, 30)
+
+[sub_resource type="Shader" id="Shader_ymm12"]
+code = "shader_type spatial;
+
+void vertex()
+{
+}
+
+uniform sampler2D tex_1 : source_color, filter_linear_mipmap, repeat_enable;
+uniform vec2 tiling_1 = vec2(1.0);
+
+uniform vec3 color_1 : source_color;
+uniform vec3 color_2 : source_color;
+
+void fragment()
+{
+	vec4 tex_sampled_1 = texture(tex_1, UV * tiling_1);
+	ALBEDO = mix(color_1, color_2, tex_sampled_1.r);
+}"
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_2ddyf"]
+render_priority = 0
+shader = SubResource("Shader_ymm12")
+shader_parameter/tex_1 = ExtResource("2_4ppfd")
+shader_parameter/tiling_1 = Vector2(30, 30)
+shader_parameter/color_1 = Color(0.55, 0.52855, 0.50049996, 1)
+shader_parameter/color_2 = Color(0.25, 0.23, 0.2125, 1)
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_4ppfd"]
+size = Vector2(30, 30)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_4ppfd"]
+size = Vector3(0.5, 2, 2)
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_ymm12"]
+render_priority = 0
+shader = SubResource("Shader_ymm12")
+shader_parameter/tex_1 = ExtResource("2_4ppfd")
+shader_parameter/tiling_1 = Vector2(6, 6)
+shader_parameter/color_1 = Color(0.55, 0.52855, 0.50049996, 1)
+shader_parameter/color_2 = Color(0.25, 0.23, 0.2125, 1)
+
+[sub_resource type="BoxMesh" id="BoxMesh_2ddyf"]
+material = SubResource("ShaderMaterial_ymm12")
+size = Vector3(0.5, 2, 2)
+
+[sub_resource type="Environment" id="Environment_4ppfd"]
+background_mode = 1
+ambient_light_source = 1
+ssao_enabled = true
+glow_enabled = true
+glow_intensity = 0.5
+glow_bloom = 0.25
+
+[node name="Node3D" type="Node3D" unique_id=442230419]
+script = ExtResource("1_r82y5")
+
+[node name="Camera" type="Camera3D" parent="." unique_id=930763055]
+transform = Transform3D(0.98670775, 0.10692889, -0.12236872, 0, 0.75301486, 0.6580035, 0.16250506, -0.6492571, 0.7430056, -2.346209, 5.517195, 8.108537)
+current = true
+fov = 50.0
+
+[node name="Floor" type="StaticBody3D" parent="." unique_id=2130802264]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor" unique_id=153514695]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+shape = SubResource("BoxShape3D_r82y5")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Floor" unique_id=352298350]
+material_override = SubResource("ShaderMaterial_2ddyf")
+mesh = SubResource("PlaneMesh_4ppfd")
+
+[node name="Target" type="StaticBody3D" parent="." unique_id=1380648531]
+transform = Transform3D(0.90258527, 0, 0.43051112, 0, 1, 0, -0.43051112, 0, 0.90258527, 3.315, 0, -1.78)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Target" unique_id=375159444]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+shape = SubResource("BoxShape3D_4ppfd")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Target" unique_id=551876610]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+mesh = SubResource("BoxMesh_2ddyf")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1051880803]
+transform = Transform3D(0.712026, 0.4342174, -0.55179185, 0, 0.7858569, 0.61840844, 0.7021531, -0.44032288, 0.5595505, 0, 2.655, 0)
+shadow_enabled = true
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=401503601]
+environment = SubResource("Environment_4ppfd")
+
+[node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=2062584959]
+
+[node name="PanelContainer" type="PanelContainer" parent="CanvasLayer" unique_id=695747295]
+offset_right = 40.0
+offset_bottom = 40.0
+
+[node name="Label" type="Label" parent="CanvasLayer/PanelContainer" unique_id=1401174909]
+layout_mode = 2
+text = "Use keys 1/2/3/4 to launch projectiles towards cursor"
+horizontal_alignment = 1
+vertical_alignment = 1
