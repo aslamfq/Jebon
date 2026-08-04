@@ -54,7 +54,7 @@ until the Android preset's `exclude_filter` is set back to this value:
     exclude_filter="addons/gut/*,test/*,projectiles/demo.tscn,projectiles/preview.tscn,projectiles/projectile_2.tscn,projectiles/projectile_3.tscn,projectiles/projectile_4.tscn,projectiles/scripts/demo.gd,projectiles/scripts/demo.gd.uid"
 
 Set it in the editor under Project → Export → Android → Resources → "Filters to exclude…", or
-paste the line into the `[preset.0.options]` section of `export_presets.cfg` (which lives at the
+paste the line into the `[preset.0]` section of `export_presets.cfg` (which lives at the
 project root, untracked). `export_filter` stays `all_resources`. What it drops: the GUT addon and
 the test suite, neither of which ships, plus the vendored projectile pack's demo/preview scenes
 and the projectile variants the game never instantiates — the game uses `projectile_1.tscn` only.
