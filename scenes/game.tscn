@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://scripts/game.gd" id="1_game"]
 [ext_resource type="Script" path="res://scripts/views/corridor_view.gd" id="2_corridor_view"]
@@ -6,6 +6,8 @@
 [ext_resource type="Script" path="res://scripts/views/projectile_view.gd" id="4_projectile_view"]
 [ext_resource type="PackedScene" path="res://assets/kaykit_adventurers/Mage.glb" id="5_mage"]
 [ext_resource type="PackedScene" path="res://assets/kaykit_skeletons/Skeleton_Minion.glb" id="6_skeleton_minion"]
+[ext_resource type="PackedScene" path="res://assets/medieval_village/Wall_Plaster_Straight.gltf" id="7_wall"]
+[ext_resource type="PackedScene" path="res://assets/medieval_village/Prop_WoodenFence_Single.gltf" id="8_fence"]
 
 [node name="Game" type="Node3D"]
 script = ExtResource("1_game")
@@ -21,6 +23,8 @@ rotation_degrees = Vector3(-50, -30, 0)
 
 [node name="CorridorView" type="Node3D" parent="."]
 script = ExtResource("2_corridor_view")
+wall_prop = ExtResource("7_wall")
+fence_prop = ExtResource("8_fence")
 
 [node name="UnitsView" type="MultiMeshInstance3D" parent="."]
 script = ExtResource("3_units_view")

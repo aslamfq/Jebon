@@ -2,8 +2,15 @@ class_name CorridorView extends Node3D
 
 const WALL_HEIGHT := 1.2
 const STRIPE_DEPTH := 0.6
+const SCENERY_STRIDE := 3
+const SCENERY_MARGIN := 1.0
+
+@export var wall_prop: PackedScene
+@export var fence_prop: PackedScene
 
 var _stripes: Array[MeshInstance3D] = []
+var _walls: Array[MeshInstance3D] = []
+var _fences: Array[MeshInstance3D] = []
 
 func _ready() -> void:
     _add_ground()
@@ -17,6 +24,32 @@ func render(runner: TrackRunner) -> void:
         var pos := stripe.position
         pos.z = runner.markers[i]
         stripe.position = pos
+    _render_scenery(runner)
+
+func _render_scenery(runner: TrackRunner) -> void:
+    var n := runner.markers.size() / SCENERY_STRIDE
+    _ensure_scenery(n)
+    for i in n:
+        var z := runner.markers[i * SCENERY_STRIDE]
+        var left := _walls[i].position
+        left.z = z
+        _walls[i].position = left
+        var right := _fences[i].position
+        right.z = z
+        _fences[i].position = right
+
+func _ensure_scenery(n: int) -> void:
+    while _walls.size() < n:
+        _walls.append(_spawn_prop(wall_prop, -(Corridor.HALF_WIDTH + SCENERY_MARGIN)))
+        _fences.append(_spawn_prop(fence_prop, Corridor.HALF_WIDTH + SCENERY_MARGIN))
+
+func _spawn_prop(scene: PackedScene, x: float) -> MeshInstance3D:
+    var mesh := MeshExtract.from_scene(scene)
+    var instance := MeshInstance3D.new()
+    instance.mesh = mesh
+    instance.position = Vector3(x, 0, 0)
+    add_child(instance)
+    return instance
 
 func _ensure_stripes(n: int) -> void:
     while _stripes.size() < n:
