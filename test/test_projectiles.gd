@@ -110,6 +110,23 @@ func test_clear_empties_the_pool():
     projectiles.clear()
     assert_eq(projectiles.count, 0)
 
+func test_clear_also_empties_the_removal_reports():
+    # Game._restart() calls clear() mid-frame and then renders. Leaving the
+    # removal reports populated lets that frame's render() replay a wiped
+    # run's impact bursts against stale data, and lets any caller that
+    # relies on clear() alone (test_game_integration's _simulate mirror
+    # among them) grow both arrays without bound across a long run.
+    units.spawn(Vector2(0, 10), Vector2.ZERO, 4.0)
+    projectiles.fire(Vector2(0, 10), Vector2(0, 1), 45.0)
+    projectiles.resolve_hits(units, 0.5, 4.0)
+    assert_eq(projectiles.removed_positions.size(), 1, "sanity check: a removal was reported")
+    projectiles.clear()
+    assert_eq(projectiles.count, 0)
+    assert_eq(projectiles.removed_positions.size(), 0,
+        "clear() must wipe the removal report, not just the live count")
+    assert_eq(projectiles.removed_previous_positions.size(), 0,
+        "clear() must wipe the parallel pre-move report too")
+
 func test_removed_positions_is_empty_when_nothing_is_removed():
     units.spawn(Vector2(0, 100), Vector2.ZERO, 10.0)
     projectiles.fire(Vector2(0, 0), Vector2(0, 1), 1.0)
@@ -173,3 +190,64 @@ func test_removed_positions_accumulates_across_tick_then_resolve_hits():
     projectiles.resolve_hits(units, 0.5, 4.0)
     assert_eq(projectiles.removed_positions.size(), 2,
         "resolve_hits() must add to tick()'s report, not replace it")
+
+# ---- removed_previous_positions: the pre-move half of the removal report ----
+#
+# ProjectileView correlates a removal against its pooled instances by
+# position, but every pooled instance's position is one frame stale at the
+# point of that comparison (the position-sync loop runs after the
+# burst-trigger check in render()). Comparing against removed_positions --
+# the position AFTER that frame's tick() -- is therefore always off by
+# exactly speed x delta, which for the squad's 35.0-unit/s projectiles is
+# 0.583 units per 60fps frame: far enough that no pooled instance ever
+# matched and squad-side impact bursts never played at all (measured: 252
+# squad removals, 0 bursts, over a 900-frame instrumented run). The
+# pre-move position is what a pool slot actually still holds at comparison
+# time, so reporting it alongside makes the correlation exact instead of
+# speed-dependent.
+
+func test_removed_previous_positions_reports_the_pre_move_position_of_a_despawn():
+    projectiles.fire(Vector2.ZERO, Vector2(0, 1), 100.0)
+    projectiles.tick(1.0, 30.0)
+    assert_eq(projectiles.removed_previous_positions.size(), 1)
+    assert_almost_eq(projectiles.removed_positions[0].y, 100.0, 0.001,
+        "sanity check: the removal itself is still reported at the post-move position")
+    assert_almost_eq(projectiles.removed_previous_positions[0].y, 0.0, 0.001,
+        "the parallel report must be where the projectile was BEFORE this tick moved it")
+
+func test_removed_previous_positions_reports_the_pre_move_position_of_a_hit():
+    units.spawn(Vector2(0, 10), Vector2.ZERO, 10.0)
+    projectiles.fire(Vector2(0, 9), Vector2(0, 1), 20.0)
+    projectiles.tick(0.1, 100.0)
+    projectiles.resolve_hits(units, 0.5, 4.0)
+    assert_eq(projectiles.removed_positions.size(), 1, "sanity check: the hit was reported")
+    assert_almost_eq(projectiles.removed_positions[0].y, 11.0, 0.001)
+    assert_almost_eq(projectiles.removed_previous_positions[0].y, 9.0, 0.001,
+        "a hit's pre-move position is where the swept segment started, not where it ended")
+
+func test_removed_previous_positions_stays_parallel_across_tick_then_resolve_hits():
+    # The exact per-frame sequence game.gd runs. Every entry in one report
+    # must have a same-index counterpart in the other, or ProjectileView's
+    # correlation reads a mismatched pair.
+    units.spawn(Vector2(0, 10), Vector2.ZERO, 4.0)
+    projectiles.fire(Vector2.ZERO, Vector2(0, 1), 100.0)    # despawns in tick()
+    projectiles.fire(Vector2(0, 10), Vector2(0, 1), 45.0)   # hits in resolve_hits()
+    projectiles.tick(0.31, 30.0)
+    projectiles.resolve_hits(units, 0.5, 4.0)
+    assert_eq(projectiles.removed_positions.size(), 2, "sanity check: both removals happened")
+    assert_eq(projectiles.removed_previous_positions.size(),
+        projectiles.removed_positions.size(),
+        "both methods must append to both reports, keeping them index-parallel")
+
+func test_removed_previous_positions_is_one_frame_of_travel_behind_the_removal():
+    # The property that makes the correlation work at any projectile speed:
+    # the gap between the two reports is exactly one frame of travel, which
+    # is precisely the offset that defeated the old post-move comparison.
+    var speed := 35.0
+    var step := 1.0 / 60.0
+    projectiles.fire(Vector2(0, 29.9), Vector2(0, 1), speed)
+    projectiles.tick(step, 30.0)
+    assert_eq(projectiles.count, 0, "sanity check: the despawn actually happened")
+    var gap: float = projectiles.removed_positions[0].distance_to(
+        projectiles.removed_previous_positions[0])
+    assert_almost_eq(gap, speed * step, 0.0001)

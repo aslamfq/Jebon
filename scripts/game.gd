@@ -117,9 +117,11 @@ func _process(delta: float) -> void:
     # the render() calls below instead of the second call's clear wiping
     # out the first's report.
     squad_projectiles.removed_positions.clear()
+    squad_projectiles.removed_previous_positions.clear()
     squad_projectiles.tick(delta, Corridor.SPAWN_DISTANCE + 5.0)
 
     enemy_projectiles.removed_positions.clear()
+    enemy_projectiles.removed_previous_positions.clear()
     enemy_projectiles.tick(delta, Corridor.SPAWN_DISTANCE + 5.0)
 
     run.record_kills(squad_projectiles.resolve_hits(enemies, HIT_RADIUS,

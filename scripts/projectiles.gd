@@ -12,6 +12,23 @@ var positions := PackedVector2Array()
 var previous_positions := PackedVector2Array()
 var velocities := PackedVector2Array()
 var removed_positions := PackedVector2Array()
+# Index-parallel to removed_positions: where that same removal was at the
+# START of the frame it died in (its previous_positions entry), not where it
+# ended up. ProjectileView needs this to work out WHICH of its pooled
+# instances a given removal belonged to: it correlates by position, and
+# every pooled instance's position is one frame stale at the moment of that
+# comparison (render() runs its burst-trigger check before its position-sync
+# loop), so the only position a pool slot still holds then is the pre-move
+# one. Correlating against removed_positions instead is always off by
+# exactly speed x delta -- 0.583 units/frame for the squad's 35.0-unit/s
+# projectiles at 60fps, which overshot the old 0.5-unit match threshold on
+# every single squad removal (measured: 252 squad removals, 0 bursts, in a
+# 900-frame instrumented run) while the enemy's slower 25.0-unit/s
+# projectiles squeaked under it at 0.417 and appeared to work. Reporting
+# both positions makes the match exact at any speed instead of accidentally
+# tuned to one. Same append-only, caller-clears semantics as
+# removed_positions below.
+var removed_previous_positions := PackedVector2Array()
 var count := 0
 
 func _init() -> void:
@@ -38,6 +55,7 @@ func tick(delta: float, despawn_radius: float) -> void:
         positions[i] += velocities[i] * delta
         if positions[i].length_squared() > radius_sq:
             removed_positions.append(positions[i])
+            removed_previous_positions.append(previous_positions[i])
             _remove_at(i)
             continue
         i += 1
@@ -69,6 +87,7 @@ func resolve_hits(units: Units, hit_radius: float, damage: float) -> int:
         if hit_index >= 0:
             kills += units.damage_at(units.positions[hit_index], 0.001, damage)
             removed_positions.append(positions[i])
+            removed_previous_positions.append(previous_positions[i])
             _remove_at(i)
             continue
         i += 1
@@ -76,6 +95,16 @@ func resolve_hits(units: Units, hit_radius: float, damage: float) -> int:
 
 func clear() -> void:
     count = 0
+    # Wiping the live count without wiping the removal reports leaves this
+    # frame's pre-restart removals visible to the render() call that follows
+    # Game._restart() in the same frame, replaying a wiped run's impact
+    # bursts against stale data. It also let any caller that relies on
+    # clear() alone rather than on game.gd's own per-frame clears (the
+    # _simulate() mirror in test/test_game_integration.gd was doing exactly
+    # that) grow both arrays without bound across a long run. A full reset
+    # means all of this object's state, not just `count`.
+    removed_positions.clear()
+    removed_previous_positions.clear()
 
 func _remove_at(i: int) -> void:
     var last := count - 1

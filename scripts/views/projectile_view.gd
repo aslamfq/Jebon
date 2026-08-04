@@ -53,6 +53,37 @@ var _burst_started_at_ms: Array[int] = []
 # matters for more than just the trail fix below.
 const BURST_DURATION_MS := 1100
 
+# How close a pool slot's position must be to a removal's PRE-MOVE position
+# (Projectiles.removed_previous_positions) to be accepted as that removal's
+# instance. Not a tuned tolerance any more: a slot that is idling in the
+# live range holds exactly the position the sync loop gave it last frame,
+# which is exactly the pre-move position this frame's tick() recorded before
+# moving that same projectile, so a real match lands within floating-point
+# noise. The old code compared against the POST-move position instead, which
+# is off by exactly speed x delta -- 0.583 units/frame at the squad's
+# 35.0-unit/s and 60fps -- so its 0.5 threshold silently excluded every
+# squad removal ever while admitting the enemy's slower 0.417. The margin
+# kept here only absorbs a projectile whose slot was synced at a slightly
+# different sub-step, never a whole frame of travel.
+const BURST_MATCH_DISTANCE := 0.25
+
+# Any single-frame position change larger than this is treated as a
+# teleport rather than travel, and the instance's TrailPrefab gets its
+# position history dropped before the move so it cannot draw a streak
+# across the gap. Comfortably above one frame of real travel for the
+# fastest projectile in the game (the squad's 35.0 units/s = 0.583
+# units/frame at 60fps), and far below the corridor-length jumps this
+# exists to catch (measured worst case: 63.8 units). A frame that runs at
+# Game.MAX_DELTA's 0.1s clamp does move a squad projectile 3.5 units in one
+# go and so trips this, dropping that instance's trail for a frame -- an
+# acceptable trade on a resume-from-background hitch that is already
+# visibly stuttering, and far cheaper than letting a real teleport draw.
+# Deliberately
+# does not try to work out WHY a jump happened -- pool re-arm, swap-remove
+# reassignment and burst expiry all produce one, and distinguishing them
+# would need a per-projectile generation/ID scheme this view does not have.
+const TRAIL_RESET_DISTANCE := 2.0
+
 func _ready() -> void:
     var mesh := SphereMesh.new()
     mesh.radius = 0.08
@@ -130,8 +161,25 @@ func render(projectiles: Projectiles) -> void:
                     projectiles.positions[i].x, 0.8, projectiles.positions[i].y)
                 _pool[i].get_node("TrailPrefab").reset_at(new_pos)
 
-    for pos in projectiles.removed_positions:
-        _trigger_burst_near(pos)
+    # Correlate each removal against the pool by its PRE-move position, not
+    # the position it died at: every pool slot's position is still last
+    # frame's at this point (the sync loop below has not run yet), and last
+    # frame's position for a projectile that ticked this frame is exactly
+    # its removed_previous_positions entry. See BURST_MATCH_DISTANCE above
+    # for what comparing against the post-move position cost. The burst
+    # itself still plays at the actual death location, which is what the
+    # player should see -- only the identification uses the older position.
+    for i in projectiles.removed_positions.size():
+        var burst_at := projectiles.removed_positions[i]
+        # The two reports are filled in lockstep by Projectiles, but a
+        # caller that only ever populated the old one (or a partially
+        # cleared pair) must degrade to the old behaviour rather than
+        # index-error out of render() and take the whole frame's drawing
+        # with it.
+        var match_at := burst_at
+        if i < projectiles.removed_previous_positions.size():
+            match_at = projectiles.removed_previous_positions[i]
+        _trigger_burst_near(match_at, burst_at)
 
     for i in pooled:
         var instance := _pool[i]
@@ -151,7 +199,8 @@ func render(projectiles: Projectiles) -> void:
         # Leaving the burst's position untouched keeps it fixed at the
         # actual death location, matching what the design doc claims.
         if not _bursting[i]:
-            instance.position = Vector3(projectiles.positions[i].x, 0.8, projectiles.positions[i].y)
+            _move_to(instance,
+                Vector3(projectiles.positions[i].x, 0.8, projectiles.positions[i].y))
             # The prefab's own launch() (never called here -- see the
             # call_deferred comment in _ready() for why) is what normally
             # orients it to face its travel direction; skipping launch()
@@ -172,27 +221,87 @@ func render(projectiles: Projectiles) -> void:
         if _pool[i].visible and not _bursting[i]:
             _pool[i].visible = false
 
-    # Overflow beyond the pool renders through the original flat-sphere
-    # MultiMesh path, so every live projectile is always drawn somehow
-    # regardless of how many are in flight.
-    var overflow := projectiles.count - pooled
-    multimesh.visible_instance_count = max(overflow, 0)
-    for i in overflow:
-        var src := pooled + i
-        var pos := projectiles.positions[src]
-        multimesh.set_instance_transform(i,
-            Transform3D(Basis(), Vector3(pos.x, 0.8, pos.y)))
+    # The original flat-sphere MultiMesh path, kept as the catch-all so
+    # every live projectile is always drawn somehow. Two groups need it:
+    #
+    #  - overflow, i.e. live projectiles past POOL_SIZE, as before; and
+    #  - live projectiles whose pool slot is mid-burst. That slot is
+    #    deliberately excluded from the position-sync loop above (its
+    #    instance has to stay parked at the death location while the impact
+    #    plays), but _remove_at's swap-remove means the same index is
+    #    usually still carrying a real, live, moving projectile -- which
+    #    would otherwise be drawn nowhere at all for the whole
+    #    BURST_DURATION_MS. That was invisible while squad bursts never
+    #    fired; with them firing it is not a corner case at all. Measured
+    #    over a 900-frame run: an average of 15.0 of 32.8 in-flight squad
+    #    projectiles (peak 26) sat in a bursting slot on any given frame,
+    #    i.e. nearly half the squad's visible fire would blink out for over
+    #    a second at a time. A plain sphere for those is a downgrade in
+    #    detail; drawing nothing is a bug.
+    var drawn := 0
+    for i in pooled:
+        if _bursting[i]:
+            _draw_fallback(drawn, projectiles.positions[i])
+            drawn += 1
+    for src in range(pooled, projectiles.count):
+        _draw_fallback(drawn, projectiles.positions[src])
+        drawn += 1
+    multimesh.visible_instance_count = drawn
 
-func _trigger_burst_near(pos: Vector2) -> void:
-    var world := Vector3(pos.x, 0.8, pos.y)
+func _draw_fallback(slot: int, pos: Vector2) -> void:
+    multimesh.set_instance_transform(slot,
+        Transform3D(Basis(), Vector3(pos.x, 0.8, pos.y)))
+
+# Every position assignment to a pooled instance goes through here. A pool
+# slot is not bound to one logical projectile: it gets re-armed at a fresh
+# muzzle spawn point after sitting invisible wherever it last died, and
+# Projectiles._remove_at()'s swap-remove hands it a completely different
+# projectile from anywhere in the corridor, with no burst involved and no
+# visibility change to notice it by. Either way the instance's position can
+# jump arbitrarily far in one frame, and TrailPrefab is a CHILD node whose
+# own _process() is still running (only the pooled instance root's
+# processing is disabled, in _ready() above) -- so its append_points() sees
+# that jump as one huge move and interpolates a solid line of points across
+# it, drawing as a full-corridor streak. Measured on the pre-fix build: 487
+# such jumps across a 900-frame run, worst case 63.8 world units, matching
+# the three full-length streaks in this branch's own task5_shot3 screenshot.
+# Dropping the trail's history first turns the streak into a clean restart.
+func _move_to(instance: Node3D, pos: Vector3) -> void:
+    if instance.position.distance_to(pos) > TRAIL_RESET_DISTANCE:
+        instance.get_node("TrailPrefab").reset_at(pos)
+    instance.position = pos
+
+# `match_pos` identifies which pooled instance this removal belonged to (a
+# pre-move position, matching what the pool still holds this early in
+# render()); `burst_pos` is where the burst actually plays, i.e. where the
+# projectile really died. Picks the CLOSEST eligible slot rather than the
+# first one inside the threshold: squad units fire volleys from nearly
+# coincident muzzle points, so several candidates can sit within the match
+# distance of each other and "first found" would burst an arbitrary one.
+func _trigger_burst_near(match_pos: Vector2, burst_pos: Vector2) -> void:
+    var world := Vector3(match_pos.x, 0.8, match_pos.y)
+    var best := -1
+    var best_distance := BURST_MATCH_DISTANCE
     for i in _pool.size():
         var instance := _pool[i]
-        if instance.visible and not _bursting[i] \
-                and instance.position.distance_to(world) < 0.5:
-            _bursting[i] = true
-            _burst_started_at_ms[i] = Time.get_ticks_msec()
-            instance.explode()
-            return
+        if not instance.visible or _bursting[i]:
+            continue
+        var distance := instance.position.distance_to(world)
+        if distance < best_distance:
+            best = i
+            best_distance = distance
+    if best < 0:
+        return
+    _bursting[best] = true
+    _burst_started_at_ms[best] = Time.get_ticks_msec()
+    # Snap onto the real death location before exploding, so the burst plays
+    # where the projectile actually died rather than one frame short of it.
+    # Through _move_to like every other assignment: this particular move is
+    # only one frame of travel, but the instance is about to sit still for
+    # BURST_DURATION_MS with its trail frozen, so it must not be the one
+    # position change in render() that bypasses the jump check.
+    _move_to(_pool[best], Vector3(burst_pos.x, 0.8, burst_pos.y))
+    _pool[best].explode()
 
 # Restores a pool instance's flight-trail emitters to their idle,
 # ready-to-render state -- undoes explode()'s "stop the trail, play the
