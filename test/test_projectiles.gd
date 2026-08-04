@@ -149,3 +149,14 @@ func test_removed_positions_reports_every_removal_in_one_call():
     assert_eq(projectiles.count, 0)
     assert_eq(projectiles.removed_positions.size(), 2,
         "both removals in this call must be reported, not just the last one")
+
+func test_removed_positions_is_cleared_at_the_start_of_resolve_hits():
+    units.spawn(Vector2(0, 100), Vector2.ZERO, 10.0)
+    projectiles.fire(Vector2(0, 0), Vector2(0, 1), 100.0)
+    projectiles.tick(1.0, 30.0)
+    assert_eq(projectiles.removed_positions.size(), 1, "sanity check: first call reported one")
+    units.spawn(Vector2(0, 10), Vector2.ZERO, 4.0)
+    projectiles.fire(Vector2(0, 10), Vector2(0, 1), 45.0)
+    projectiles.resolve_hits(units, 0.5, 4.0)
+    assert_eq(projectiles.removed_positions.size(), 1,
+        "a resolve_hits call must clear last call's report, not accumulate")
