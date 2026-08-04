@@ -1,0 +1,27 @@
+[gd_scene format=3 uid="uid://dbrxxlfavl3vo"]
+
+[sub_resource type="GDScript" id="GDScript_w1hru"]
+script/source = "extends Node3D
+
+func _unhandled_key_input(event: InputEvent) -> void:
+	if event.is_pressed() and event.keycode == KEY_SPACE:
+		var sig := get_tree().create_timer(0.7).timeout
+		add_projectile(preload(\"res://projectiles/projectile_1.tscn\"), Vector3(-4.0, 3.0, 0.0), sig)
+		add_projectile(preload(\"res://projectiles/projectile_2.tscn\"), Vector3(-4.0, 1.0, 0.0), sig)
+		add_projectile(preload(\"res://projectiles/projectile_3.tscn\"), Vector3(-4.0, -1.0, 0.0), sig)
+		add_projectile(preload(\"res://projectiles/projectile_4.tscn\"), Vector3(-4.0, -3.0, 0.0), sig)
+		
+func add_projectile(prefab: PackedScene, pos: Vector3, sig: Signal) -> void:
+	var p: Node3D = prefab.instantiate()
+	p.position = pos
+	add_child(p)
+	p.launch(Vector3(1, 0, 0))
+	sig.connect(p.explode)
+"
+
+[node name="Node3D" type="Node3D" unique_id=999457168]
+script = SubResource("GDScript_w1hru")
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=7420505]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 8.520485)
+fov = 55.0
