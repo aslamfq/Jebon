@@ -5,6 +5,45 @@ const POOL_SIZE := 64
 @export var model_scene: PackedScene
 
 var _pool: Array[Node3D] = []
+# Parallel to _pool: true while pool slot i's burst is playing. Tracked here
+# rather than read from the vendored prefab's own `collided` property --
+# that property is only ever set true (in the prefab's own explode()) and
+# never reset anywhere in the prefab's script, and Task 5 additionally
+# disables set_process()/set_physics_process() on every pooled instance
+# (via call_deferred, to stop the prefab's own lifetime queue_free() timer),
+# which means the prefab's _process() never runs on a pooled instance at
+# all -- not for the trail fade, and not for any reset of `collided` either.
+# Relying on instance.get("collided") would leave a pooled instance
+# permanently unable to burst again after its first hit, and permanently
+# un-hideable by the overflow-cleanup loop below once it drifts past the
+# pool's live range: a frozen, stuck-visible ghost burst. This project's own
+# view code owns burst-state instead, as a single source of truth, reset in
+# the same re-arm block that already resets the emitter scale/visibility.
+var _bursting: Array[bool] = []
+# Parallel to _pool: engine ms timestamp (Time.get_ticks_msec()) when slot
+# i's burst was triggered. Needed because nothing else ever flips
+# `_bursting[i]` back to false: reading the loop below literally, an
+# instance that is mid-burst is deliberately excluded both from the
+# "hide it" cleanup pass (so the burst isn't cut off mid-play) and, as a
+# consequence, from the "re-arm on becoming visible again" block (which
+# only runs once an instance has *gone* invisible first) -- a closed loop
+# with no exit, so every instance that ever bursts would stay stuck
+# `visible = true` forever, either as a frozen ghost once it drifts past
+# the pool's live range, or silently repositioned onto whatever live
+# projectile next lands on its pool index while still showing its old
+# burst. A fixed duration is the timeout that breaks the loop:
+# BURST_DURATION_MS below clears `_bursting[i]` once enough real time has
+# passed for the burst to have visibly finished, giving the existing
+# cleanup/re-arm logic an actual path back to idle. (`Time` rather than a
+# per-frame delta so this doesn't require changing render()'s signature or
+# game.gd's call sites.)
+var _burst_started_at_ms: Array[int] = []
+
+# Comfortably longer than the longest-lived child GPUParticles3D under the
+# prefab's Impact node (Glow and Sparks, both lifetime = 0.6s per
+# projectiles/projectile_1.tscn) so the timeout never cuts a burst off
+# mid-play.
+const BURST_DURATION_MS := 700
 
 func _ready() -> void:
     var mesh := SphereMesh.new()
@@ -39,16 +78,52 @@ func _ready() -> void:
             instance.call_deferred("set_process", false)
             instance.visible = false
             _pool.append(instance)
+            _bursting.append(false)
+            _burst_started_at_ms.append(0)
 
 func render(projectiles: Projectiles) -> void:
     var pooled := mini(projectiles.count, _pool.size())
 
+    # Expire bursts whose timeout has elapsed *before* touching position or
+    # visibility this frame, and re-arm trail emitters right here rather
+    # than only in the `if not instance.visible:` block below -- a pool
+    # slot that stays continuously within the live [0, pooled) range across
+    # a burst (the common case with small in-flight counts, since the
+    # index that just finished bursting is usually still needed by the
+    # projectile swapped into it) never goes invisible at all, so that
+    # block alone would leave its trail emitters disabled forever even
+    # after the burst is long over.
+    var now := Time.get_ticks_msec()
+    for i in _pool.size():
+        if _bursting[i] and now - _burst_started_at_ms[i] >= BURST_DURATION_MS:
+            _bursting[i] = false
+            _rearm(_pool[i])
+
+    for pos in projectiles.removed_positions:
+        _trigger_burst_near(pos)
+
     for i in pooled:
         var instance := _pool[i]
-        instance.visible = true
-        instance.position = Vector3(projectiles.positions[i].x, 0.8, projectiles.positions[i].y)
+        if not instance.visible:
+            instance.visible = true
+            _rearm(instance)
+        # Skip the position sync while bursting: a pool index below
+        # `pooled` isn't reserved for one logical projectile across
+        # frames (_remove_at's swap-remove can reassign it to a different
+        # still-live projectile the very same frame a burst triggers on
+        # it), and forcing a mid-burst instance's position to jump to
+        # wherever that reassigned projectile now is would corrupt
+        # TrailPrefab's own position-history trail (a child node, and so
+        # unaffected by set_process(false) above, which only touches the
+        # instance root) into a visible diagonal kink connecting the two
+        # points -- confirmed on screen during Step 3's visual check.
+        # Leaving the burst's position untouched keeps it fixed at the
+        # actual death location, matching what the design doc claims.
+        if not _bursting[i]:
+            instance.position = Vector3(projectiles.positions[i].x, 0.8, projectiles.positions[i].y)
     for i in range(pooled, _pool.size()):
-        _pool[i].visible = false
+        if _pool[i].visible and not _bursting[i]:
+            _pool[i].visible = false
 
     # Overflow beyond the pool renders through the original flat-sphere
     # MultiMesh path, so every live projectile is always drawn somehow
@@ -60,3 +135,25 @@ func render(projectiles: Projectiles) -> void:
         var pos := projectiles.positions[src]
         multimesh.set_instance_transform(i,
             Transform3D(Basis(), Vector3(pos.x, 0.8, pos.y)))
+
+func _trigger_burst_near(pos: Vector2) -> void:
+    var world := Vector3(pos.x, 0.8, pos.y)
+    for i in _pool.size():
+        var instance := _pool[i]
+        if instance.visible and not _bursting[i] \
+                and instance.position.distance_to(world) < 0.5:
+            _bursting[i] = true
+            _burst_started_at_ms[i] = Time.get_ticks_msec()
+            instance.explode()
+            return
+
+# Restores a pool instance's flight-trail emitters to their idle,
+# ready-to-render state -- undoes explode()'s "stop the trail, play the
+# impact" effect. Called both from the normal re-arm-on-visible path and
+# from the burst-timeout expiry above, since a slot that stays continuously
+# within the live pool range across a burst never toggles `visible` at all.
+func _rearm(instance: Node3D) -> void:
+    instance.get_node("Emitters").scale = Vector3.ONE
+    for e in instance.get_node("Emitters").get_children():
+        e.emitting = true
+        e.visible = true
