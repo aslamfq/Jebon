@@ -88,6 +88,23 @@ func append_points() -> void:
 		texture_offset -= motion_threshold / max(texture_length * get_global_scale(), 0.001);
 		previous_position = next
 
+# Drops the trail's entire position history and re-anchors it at pos,
+# with no points in between. Needed by ProjectileView (scripts/views/
+# projectile_view.gd) for the frame a pooled projectile's burst expires
+# and its position gets snapped onto whatever live projectile now
+# occupies the same pool slot: without this, append_points() below would
+# see previous_position (still sitting at the old death location) jump to
+# the new position in one step and interpolate a straight line of points
+# across the gap, drawing as a visible kink. Called before that snap
+# happens, so the trail's own next _process() sees a zero-distance move
+# and starts clean from the new position instead.
+func reset_at(pos: Vector3) -> void:
+	points.clear()
+	uvs.clear()
+	widths.clear()
+	age.clear()
+	previous_position = pos
+
 func remove_point(i: int) -> void:
 	points.remove_at(i)
 	uvs.remove_at(i)

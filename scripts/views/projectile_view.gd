@@ -40,10 +40,18 @@ var _bursting: Array[bool] = []
 var _burst_started_at_ms: Array[int] = []
 
 # Comfortably longer than the longest-lived child GPUParticles3D under the
-# prefab's Impact node (Glow and Sparks, both lifetime = 0.6s per
-# projectiles/projectile_1.tscn) so the timeout never cuts a burst off
-# mid-play.
-const BURST_DURATION_MS := 700
+# prefab's Impact node. Read directly from projectiles/projectile_1.tscn:
+# Impact/Glow and Impact/Sparks both set lifetime = 0.6, but Impact/Bits
+# has NO lifetime line at all, so it uses GPUParticles3D's own default of
+# 1.0s -- and its process shader (m4_randomize_lifetime) further scales
+# that down by up to 80% per-particle (lifetime *= 1.0 - rand() * 0.8), so
+# individual Bits particles range roughly 0.2s-1.0s, topping out at the
+# full 1.0s default. 0.6s (Glow/Sparks) is not the longest-lived child;
+# Bits is, at up to 1.0s. Bits also has local_coords = true, so an
+# unhandled position snap at burst expiry would drag its still-animating
+# particles along with it too, not just the trail -- so the margin here
+# matters for more than just the trail fix below.
+const BURST_DURATION_MS := 1100
 
 func _ready() -> void:
     var mesh := SphereMesh.new()
@@ -98,6 +106,29 @@ func render(projectiles: Projectiles) -> void:
         if _bursting[i] and now - _burst_started_at_ms[i] >= BURST_DURATION_MS:
             _bursting[i] = false
             _rearm(_pool[i])
+            # A slot that's still within this frame's live pool range gets
+            # its position snapped to whatever projectile now occupies it,
+            # in the sync loop right below -- read TrailPrefab's own
+            # append_points() (projectiles/scripts/trail3d.gd) to see why
+            # that snap alone used to draw a kink: it compares
+            # global_position against its own remembered previous_position
+            # every _process() and interpolates points across the gap, and
+            # while bursting that previous_position sits frozen at the
+            # death location (position sync was skipped, so nothing moved
+            # it), so the very next sample after the snap reads as one huge
+            # single-frame move and gets drawn as a straight connecting
+            # segment across the screen. Resetting the trail's own history
+            # to the new position *before* that sync loop runs removes the
+            # jump at its source instead of just not rendering it -- the
+            # frame where the snap happens is also the frame Impact/Bits
+            # (local_coords = true, still animating for up to 1.0s per
+            # BURST_DURATION_MS above) would otherwise drag along with the
+            # same snap, so this has to happen before position sync either
+            # way, not just for the trail.
+            if i < pooled:
+                var new_pos := Vector3(
+                    projectiles.positions[i].x, 0.8, projectiles.positions[i].y)
+                _pool[i].get_node("TrailPrefab").reset_at(new_pos)
 
     for pos in projectiles.removed_positions:
         _trigger_burst_near(pos)

@@ -29,7 +29,8 @@ func fire(origin: Vector2, direction: Vector2, speed: float) -> bool:
     return true
 
 func tick(delta: float, despawn_radius: float) -> void:
-    removed_positions.clear()
+    # Deliberately does NOT clear removed_positions -- see resolve_hits below
+    # for why clearing lives with the caller instead of here.
     var radius_sq := despawn_radius * despawn_radius
     var i := 0
     while i < count:
@@ -44,7 +45,16 @@ func tick(delta: float, despawn_radius: float) -> void:
 # Naive nested loop by design. Phase 3 replaces the inner scan with a radial
 # broadphase behind this same signature, guarded by these tests.
 func resolve_hits(units: Units, hit_radius: float, damage: float) -> int:
-    removed_positions.clear()
+    # Deliberately does NOT clear removed_positions. game.gd calls tick()
+    # then resolve_hits() on the same Projectiles instance every frame,
+    # before a single render() call reads removed_positions -- if either
+    # method cleared its own start, whichever ran second would wipe out
+    # the first's report and only that method's removals would ever reach
+    # render(), silently losing despawns (tick()'s only source) every
+    # frame. Both methods only ever append; the caller (game.gd) clears
+    # removed_positions itself, once per frame per pool, before its
+    # tick()/resolve_hits() pair, so a frame's removals from both calls
+    # accumulate into one combined report.
     var kills := 0
     var radius_sq := hit_radius * hit_radius
     var i := 0

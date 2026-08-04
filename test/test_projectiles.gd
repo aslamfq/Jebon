@@ -132,14 +132,20 @@ func test_removed_positions_reports_a_hit():
     assert_almost_eq(projectiles.removed_positions[0].x, 0.0, 0.001)
     assert_almost_eq(projectiles.removed_positions[0].y, 10.0, 0.001)
 
-func test_removed_positions_is_cleared_at_the_start_of_each_call():
+func test_removed_positions_accumulates_across_calls_with_no_clear_between():
+    # game.gd calls tick() then resolve_hits() on the same Projectiles
+    # instance every frame, with no clear in between, before a single
+    # render() call reads removed_positions -- so a real frame's report
+    # must combine both calls' removals, not just reflect whichever ran
+    # last. Neither method clears at its own start any more; that's the
+    # caller's job, once per frame (see game.gd).
     projectiles.fire(Vector2.ZERO, Vector2(0, 1), 100.0)
     projectiles.tick(1.0, 30.0)
     assert_eq(projectiles.removed_positions.size(), 1, "sanity check: first call reported one")
     projectiles.fire(Vector2.ZERO, Vector2(0, 1), 1.0)
     projectiles.tick(0.01, 1000.0)
-    assert_eq(projectiles.removed_positions.size(), 0,
-        "a call that removes nothing must clear last call's report, not accumulate")
+    assert_eq(projectiles.removed_positions.size(), 1,
+        "a second call that removes nothing must leave the first call's report intact")
 
 func test_removed_positions_reports_every_removal_in_one_call():
     # Two bullets that both despawn in the same tick() call.
@@ -150,7 +156,14 @@ func test_removed_positions_reports_every_removal_in_one_call():
     assert_eq(projectiles.removed_positions.size(), 2,
         "both removals in this call must be reported, not just the last one")
 
-func test_removed_positions_is_cleared_at_the_start_of_resolve_hits():
+func test_removed_positions_accumulates_across_tick_then_resolve_hits():
+    # The exact sequence game.gd runs every frame for one pool: tick()
+    # (despawns) immediately followed by resolve_hits() (hits), with no
+    # clear between them. Both calls' removals must land in one combined
+    # report for render() to see -- this is the property that was broken
+    # when each method cleared removed_positions at its own start:
+    # resolve_hits()'s clear silently wiped out tick()'s despawn every
+    # frame.
     units.spawn(Vector2(0, 100), Vector2.ZERO, 10.0)
     projectiles.fire(Vector2(0, 0), Vector2(0, 1), 100.0)
     projectiles.tick(1.0, 30.0)
@@ -158,5 +171,5 @@ func test_removed_positions_is_cleared_at_the_start_of_resolve_hits():
     units.spawn(Vector2(0, 10), Vector2.ZERO, 4.0)
     projectiles.fire(Vector2(0, 10), Vector2(0, 1), 45.0)
     projectiles.resolve_hits(units, 0.5, 4.0)
-    assert_eq(projectiles.removed_positions.size(), 1,
-        "a resolve_hits call must clear last call's report, not accumulate")
+    assert_eq(projectiles.removed_positions.size(), 2,
+        "resolve_hits() must add to tick()'s report, not replace it")

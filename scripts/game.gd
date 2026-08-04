@@ -110,7 +110,16 @@ func _process(delta: float) -> void:
         Weapon.spread_degrees_at(ENEMY_WEAPON_TIER),
         Vector2(0, -1), ENEMY_PROJECTILE_SPEED)
 
+    # Projectiles.tick()/resolve_hits() only ever append to
+    # removed_positions now (see scripts/projectiles.gd) -- clearing is the
+    # caller's job, once per frame per pool, so a single frame's despawns
+    # (from tick()) and hits (from resolve_hits()) both survive to reach
+    # the render() calls below instead of the second call's clear wiping
+    # out the first's report.
+    squad_projectiles.removed_positions.clear()
     squad_projectiles.tick(delta, Corridor.SPAWN_DISTANCE + 5.0)
+
+    enemy_projectiles.removed_positions.clear()
     enemy_projectiles.tick(delta, Corridor.SPAWN_DISTANCE + 5.0)
 
     run.record_kills(squad_projectiles.resolve_hits(enemies, HIT_RADIUS,
