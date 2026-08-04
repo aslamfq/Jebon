@@ -1,4 +1,4 @@
-[gd_scene load_steps=9 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://scripts/game.gd" id="1_game"]
 [ext_resource type="Script" path="res://scripts/views/corridor_view.gd" id="2_corridor_view"]
@@ -8,6 +8,7 @@
 [ext_resource type="PackedScene" path="res://assets/kaykit_skeletons/Skeleton_Minion.glb" id="6_skeleton_minion"]
 [ext_resource type="PackedScene" path="res://assets/medieval_village/Wall_Plaster_Straight.gltf" id="7_wall"]
 [ext_resource type="PackedScene" path="res://assets/medieval_village/Prop_WoodenFence_Single.gltf" id="8_fence"]
+[ext_resource type="PackedScene" path="res://projectiles/projectile_1.tscn" id="9_projectile"]
 
 [node name="Game" type="Node3D"]
 script = ExtResource("1_game")
@@ -36,9 +37,11 @@ model_scene = ExtResource("6_skeleton_minion")
 
 [node name="SquadProjectileView" type="MultiMeshInstance3D" parent="."]
 script = ExtResource("4_projectile_view")
+model_scene = ExtResource("9_projectile")
 
 [node name="EnemyProjectileView" type="MultiMeshInstance3D" parent="."]
 script = ExtResource("4_projectile_view")
+model_scene = ExtResource("9_projectile")
 
 [node name="HUD" type="CanvasLayer" parent="."]
 
