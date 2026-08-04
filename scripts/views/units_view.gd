@@ -3,10 +3,18 @@ class_name UnitsView extends MultiMeshInstance3D
 const BOB_HEIGHT := 0.12
 const BOB_SPEED := 9.0
 
+# Unset by default so any other instance of this script (there are none
+# today besides Squad's own UnitsView and Game's EnemyView, both of which
+# now set this in game.tscn) still gets a working placeholder.
+@export var model_scene: PackedScene
+
 func _ready() -> void:
-    var mesh := CapsuleMesh.new()
-    mesh.radius = 0.25
-    mesh.height = 1.4
+    var mesh: Mesh = MeshExtract.from_scene(model_scene) if model_scene else null
+    if mesh == null:
+        var capsule := CapsuleMesh.new()
+        capsule.radius = 0.25
+        capsule.height = 1.4
+        mesh = capsule
 
     multimesh = MultiMesh.new()
     multimesh.transform_format = MultiMesh.TRANSFORM_3D
