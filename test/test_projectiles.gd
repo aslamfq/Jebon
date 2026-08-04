@@ -109,3 +109,43 @@ func test_clear_empties_the_pool():
     projectiles.fire(Vector2.ZERO, Vector2(0, 1), 45.0)
     projectiles.clear()
     assert_eq(projectiles.count, 0)
+
+func test_removed_positions_is_empty_when_nothing_is_removed():
+    units.spawn(Vector2(0, 100), Vector2.ZERO, 10.0)
+    projectiles.fire(Vector2(0, 0), Vector2(0, 1), 1.0)
+    projectiles.tick(0.1, 1000.0)
+    assert_eq(projectiles.removed_positions.size(), 0)
+
+func test_removed_positions_reports_a_despawn():
+    projectiles.fire(Vector2.ZERO, Vector2(0, 1), 100.0)
+    projectiles.tick(1.0, 30.0)
+    assert_eq(projectiles.count, 0, "sanity check: the despawn actually happened")
+    assert_eq(projectiles.removed_positions.size(), 1)
+    assert_almost_eq(projectiles.removed_positions[0].y, 100.0, 0.001,
+        "must report where the projectile actually was when it despawned, not the origin")
+
+func test_removed_positions_reports_a_hit():
+    units.spawn(Vector2(0, 10), Vector2.ZERO, 4.0)
+    projectiles.fire(Vector2(0, 10), Vector2(0, 1), 45.0)
+    projectiles.resolve_hits(units, 0.5, 4.0)
+    assert_eq(projectiles.removed_positions.size(), 1)
+    assert_almost_eq(projectiles.removed_positions[0].x, 0.0, 0.001)
+    assert_almost_eq(projectiles.removed_positions[0].y, 10.0, 0.001)
+
+func test_removed_positions_is_cleared_at_the_start_of_each_call():
+    projectiles.fire(Vector2.ZERO, Vector2(0, 1), 100.0)
+    projectiles.tick(1.0, 30.0)
+    assert_eq(projectiles.removed_positions.size(), 1, "sanity check: first call reported one")
+    projectiles.fire(Vector2.ZERO, Vector2(0, 1), 1.0)
+    projectiles.tick(0.01, 1000.0)
+    assert_eq(projectiles.removed_positions.size(), 0,
+        "a call that removes nothing must clear last call's report, not accumulate")
+
+func test_removed_positions_reports_every_removal_in_one_call():
+    # Two bullets that both despawn in the same tick() call.
+    projectiles.fire(Vector2.ZERO, Vector2(0, 1), 100.0)
+    projectiles.fire(Vector2(5, 0), Vector2(0, 1), 100.0)
+    projectiles.tick(1.0, 30.0)
+    assert_eq(projectiles.count, 0)
+    assert_eq(projectiles.removed_positions.size(), 2,
+        "both removals in this call must be reported, not just the last one")

@@ -11,6 +11,7 @@ var positions := PackedVector2Array()
 # within hit_radius even though the path between them does.
 var previous_positions := PackedVector2Array()
 var velocities := PackedVector2Array()
+var removed_positions := PackedVector2Array()
 var count := 0
 
 func _init() -> void:
@@ -28,12 +29,14 @@ func fire(origin: Vector2, direction: Vector2, speed: float) -> bool:
     return true
 
 func tick(delta: float, despawn_radius: float) -> void:
+    removed_positions.clear()
     var radius_sq := despawn_radius * despawn_radius
     var i := 0
     while i < count:
         previous_positions[i] = positions[i]
         positions[i] += velocities[i] * delta
         if positions[i].length_squared() > radius_sq:
+            removed_positions.append(positions[i])
             _remove_at(i)
             continue
         i += 1
@@ -41,6 +44,7 @@ func tick(delta: float, despawn_radius: float) -> void:
 # Naive nested loop by design. Phase 3 replaces the inner scan with a radial
 # broadphase behind this same signature, guarded by these tests.
 func resolve_hits(units: Units, hit_radius: float, damage: float) -> int:
+    removed_positions.clear()
     var kills := 0
     var radius_sq := hit_radius * hit_radius
     var i := 0
@@ -54,6 +58,7 @@ func resolve_hits(units: Units, hit_radius: float, damage: float) -> int:
                 break
         if hit_index >= 0:
             kills += units.damage_at(units.positions[hit_index], 0.001, damage)
+            removed_positions.append(positions[i])
             _remove_at(i)
             continue
         i += 1
