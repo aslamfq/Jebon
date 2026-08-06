@@ -127,6 +127,52 @@ func test_reset_restores_weapon_tier_zero():
     squad.reset()
     assert_eq(squad.weapon_tier, 0)
 
+func test_add_count_increases():
+    squad.set_count(10)
+    squad.add_count(5)
+    assert_eq(squad.count(), 15)
+
+func test_add_count_floors_at_one():
+    squad.set_count(1)
+    squad.add_count(-50)
+    assert_eq(squad.count(), 1,
+        "a gate must never be able to wipe the squad -- only combat may reach zero")
+
+func test_add_count_still_clamps_to_the_cap():
+    squad.set_count(Units.MAX_UNITS - 2)
+    squad.add_count(100)
+    assert_eq(squad.count(), Units.MAX_UNITS)
+
+func test_mul_count_scales():
+    squad.set_count(10)
+    squad.mul_count(2.0)
+    assert_eq(squad.count(), 20)
+
+func test_mul_count_floors_at_one():
+    squad.set_count(1)
+    squad.mul_count(0.5)
+    assert_eq(squad.count(), 1,
+        "a halving gate on a single-unit squad must not be able to reach zero")
+
+func test_step_weapon_tier_increases():
+    squad.step_weapon_tier(1)
+    assert_eq(squad.weapon_tier, 1)
+
+func test_step_weapon_tier_clamps_at_the_top():
+    squad.weapon_tier = Weapon.TIER_COUNT - 1
+    squad.step_weapon_tier(1)
+    assert_eq(squad.weapon_tier, Weapon.TIER_COUNT - 1,
+        "stepping past the top tier must clamp, not overflow silently")
+
+func test_step_weapon_tier_clamps_at_the_bottom():
+    squad.step_weapon_tier(-1)
+    assert_eq(squad.weapon_tier, 0,
+        "stepping below tier 0 must clamp, or a later good gate could silently do nothing while the squad 'climbs back' through negative tiers")
+
+func test_set_formation_changes_formation():
+    squad.set_formation(Formation.Kind.WEDGE)
+    assert_eq(squad.formation, Formation.Kind.WEDGE)
+
 func _span() -> float:
     var lo := 1000.0
     var hi := -1000.0
