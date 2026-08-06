@@ -34,6 +34,7 @@ var enemy_weapon: Weapon
 var squad_projectiles: Projectiles
 var enemy_projectiles: Projectiles
 var run: RunState
+var gates: Gates
 
 var _dragging := false
 var _drag_origin := Vector2.ZERO
@@ -62,6 +63,7 @@ func _ready() -> void:
     enemy_projectiles = Projectiles.new()
     run = RunState.new()
     run.load_best()
+    gates = Gates.new()
 
 func _unhandled_input(event: InputEvent) -> void:
     if event is InputEventScreenTouch or event is InputEventMouseButton:
@@ -96,6 +98,9 @@ func _process(delta: float) -> void:
     runner.tick(delta)
     steer.tick(delta)
     squad.tick(delta, steer.centre_x)
+    for pair in generator.tick_gates(delta, squad.formation):
+        gates.pairs.append(pair)
+    gates.tick(delta, Corridor.scroll_speed_at(runner.elapsed), squad)
     enemies.tick(delta, Vector2(0, -Corridor.scroll_speed_at(runner.elapsed)))
 
     var squad_shots := squad_weapon.tick(delta, squad.weapon_tier)
@@ -151,6 +156,7 @@ func _restart() -> void:
     steer.reset()
     runner.reset()
     generator.reset()
+    gates.reset()
     enemies.clear()
     squad_weapon.reset()
     enemy_weapon.reset()

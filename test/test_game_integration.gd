@@ -355,3 +355,50 @@ func test_process_clamps_a_huge_delta_after_the_app_resumes_from_background():
     game._process(3600.0)
     assert_almost_eq(game.runner.elapsed, Game.MAX_DELTA, 0.0001,
         "a single frame must never simulate more than Game.MAX_DELTA of game time, however large the real elapsed time was")
+
+func test_gates_are_wired_into_the_scene():
+    var game := _make_game()
+    assert_not_null(game.gates, "Game must construct its own Gates in _ready")
+
+func test_restart_reuses_gates_and_clears_pending_pairs():
+    var game := _make_game()
+    var gates_ref: Gates = game.gates
+    game.gates.pairs.append(GatePair.new(
+        Gate.new(Gate.Op.ADD, 1.0, -Gate.SIDE_OFFSET),
+        Gate.new(Gate.Op.ADD, 1.0, Gate.SIDE_OFFSET), 30.0))
+
+    game._restart()
+
+    assert_same(game.gates, gates_ref, "restart must reuse the existing Gates, never rebuild it")
+    assert_eq(game.gates.pairs.size(), 0,
+        "restart must clear any pairs still on-track from the previous run")
+
+func test_a_gate_injected_into_the_real_scene_reaches_squad_through_process():
+    # Closes the same kind of gap test_real_scene_combat_produces_a_kill closes for
+    # combat: proves gates actually flow through the real Game._process(), not just
+    # the isolated Gate/GatePair/Gates unit tests. Values are constructed directly
+    # rather than relying on TrackGenerator's random family selection, so this test
+    # is deterministic without needing a seed search.
+    var game := _make_game()
+    game.generator = TrackGenerator.new(1)
+
+    # Steer fully onto the right gate's centre and let SteerInput's exponential
+    # smoothing settle there before any gate is on the track, so the squad's
+    # centre_x is already stable when the injected pair arrives.
+    game.steer.steer_to_screen_delta(Vector2(Gate.SIDE_OFFSET * SteerInput.PIXELS_PER_UNIT, 0))
+    var step := 1.0 / 60.0
+    for i in 60:
+        game._process(step)
+    assert_almost_eq(game.squad.centre_x, Gate.SIDE_OFFSET, 0.05,
+        "test setup problem: steering did not settle where this test needs it")
+
+    var count_before: int = game.squad.count()
+    var harmless_left := Gate.new(Gate.Op.ADD, 0.0, -Gate.SIDE_OFFSET)
+    var real_right := Gate.new(Gate.Op.ADD, 25.0, Gate.SIDE_OFFSET)
+    game.gates.pairs.append(GatePair.new(harmless_left, real_right, 3.0))
+
+    for i in 60:
+        game._process(step)
+
+    assert_eq(game.squad.count(), count_before + 25,
+        "a gate pair placed directly on Game.gates must actually apply through the real _process() loop")
