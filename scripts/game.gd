@@ -22,6 +22,7 @@ const MAX_DELTA := 0.1
 @onready var corridor_view: CorridorView = $CorridorView
 @onready var squad_projectile_view: ProjectileView = $SquadProjectileView
 @onready var enemy_projectile_view: ProjectileView = $EnemyProjectileView
+@onready var gate_view: GateView = $GateView
 @onready var hud: Label = $HUD/DistanceLabel
 
 var squad: Squad
@@ -144,6 +145,7 @@ func _process(delta: float) -> void:
     units_view.render(squad.units, _time)
     enemy_view.render(enemies, _time)
     corridor_view.render(runner)
+    gate_view.render(gates)
     squad_projectile_view.render(squad_projectiles)
     enemy_projectile_view.render(enemy_projectiles)
     hud.text = "%d m    %d kills    %d fps" % [int(runner.distance), run.kills, Engine.get_frames_per_second()]
