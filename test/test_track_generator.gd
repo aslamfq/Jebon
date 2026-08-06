@@ -106,3 +106,131 @@ func test_reset_restores_base_difficulty():
     var escalated_health := g.enemy_health()
     g.reset()
     assert_lt(g.enemy_health(), escalated_health)
+
+enum _Family { COUNT, WEAPON, FORMATION }
+
+func _family_of(gate: Gate) -> int:
+    match gate.op:
+        Gate.Op.ADD, Gate.Op.MUL:
+            return _Family.COUNT
+        Gate.Op.TIER_STEP:
+            return _Family.WEAPON
+        _:
+            return _Family.FORMATION
+
+func test_tick_gates_produces_nothing_before_the_interval_elapses():
+    var g := TrackGenerator.new(42)
+    var spawns := g.tick_gates(0.5, Formation.Kind.WIDE)
+    assert_eq(spawns.size(), 0)
+
+func test_tick_gates_spawns_a_pair_at_the_spawn_distance_once_the_interval_elapses():
+    var g := TrackGenerator.new(42)
+    var spawns := g.tick_gates(TrackGenerator.GATE_SPAWN_INTERVAL, Formation.Kind.WIDE)
+    assert_eq(spawns.size(), 1)
+    assert_almost_eq(spawns[0].y, Corridor.SPAWN_DISTANCE, 0.001)
+
+func test_tick_gates_never_returns_more_than_one_pair_per_call():
+    var g := TrackGenerator.new(42)
+    # Five intervals' worth of delta in a single call -- a real backgrounded-app
+    # catch-up frame could plausibly do this before Game.MAX_DELTA clamps it.
+    var spawns := g.tick_gates(TrackGenerator.GATE_SPAWN_INTERVAL * 5.0, Formation.Kind.WIDE)
+    assert_eq(spawns.size(), 1,
+        "at most one pair per call, or two pairs could land at the identical y and make trigger resolution ambiguous")
+
+func test_a_spawned_pair_has_gates_on_opposite_sides():
+    var g := TrackGenerator.new(42)
+    var spawns := g.tick_gates(TrackGenerator.GATE_SPAWN_INTERVAL, Formation.Kind.WIDE)
+    var pair: GatePair = spawns[0]
+    assert_almost_eq(pair.left.x_centre, -Gate.SIDE_OFFSET, 0.001)
+    assert_almost_eq(pair.right.x_centre, Gate.SIDE_OFFSET, 0.001)
+
+func test_pairs_are_cross_family_never_the_same_family_on_both_sides():
+    var g := TrackGenerator.new(42)
+    for i in 40:
+        var spawns := g.tick_gates(TrackGenerator.GATE_SPAWN_INTERVAL, Formation.Kind.WIDE)
+        if spawns.size() == 0:
+            continue
+        var pair: GatePair = spawns[0]
+        assert_ne(_family_of(pair.left), _family_of(pair.right),
+            "a pair must always offer two different families, never the same family on both sides")
+
+func test_formation_gate_never_offers_the_squads_current_formation():
+    var g := TrackGenerator.new(42)
+    var found_formation_gate := false
+    for i in 200:
+        var spawns := g.tick_gates(TrackGenerator.GATE_SPAWN_INTERVAL, Formation.Kind.WIDE)
+        if spawns.size() == 0:
+            continue
+        var pair: GatePair = spawns[0]
+        for gate in [pair.left, pair.right]:
+            if gate.op == Gate.Op.SET_FORMATION:
+                found_formation_gate = true
+                assert_ne(int(gate.value), Formation.Kind.WIDE,
+                    "a Formation gate must never offer the formation the squad is already in")
+    assert_true(found_formation_gate,
+        "test setup problem: 200 pairs produced no Formation gate at all to check")
+
+func test_non_formation_pairs_are_one_good_one_bad():
+    # When neither side is Formation, Count/Weapon must split good/bad -- never
+    # both positive or both negative, per the design's cross-family tension rule.
+    var g := TrackGenerator.new(42)
+    var checked := 0
+    for i in 60:
+        var spawns := g.tick_gates(TrackGenerator.GATE_SPAWN_INTERVAL, Formation.Kind.WIDE)
+        if spawns.size() == 0:
+            continue
+        var pair: GatePair = spawns[0]
+        if pair.left.op == Gate.Op.SET_FORMATION or pair.right.op == Gate.Op.SET_FORMATION:
+            continue
+        checked += 1
+        var left_good: bool = (pair.left.op == Gate.Op.ADD and pair.left.value > 0.0) \
+            or (pair.left.op == Gate.Op.MUL and pair.left.value > 1.0) \
+            or (pair.left.op == Gate.Op.TIER_STEP and pair.left.value > 0.0)
+        var right_good: bool = (pair.right.op == Gate.Op.ADD and pair.right.value > 0.0) \
+            or (pair.right.op == Gate.Op.MUL and pair.right.value > 1.0) \
+            or (pair.right.op == Gate.Op.TIER_STEP and pair.right.value > 0.0)
+        assert_ne(left_good, right_good,
+            "exactly one side of a non-Formation pair must be good and the other bad")
+    assert_gt(checked, 0, "test setup problem: no non-Formation pair appeared to check")
+
+func test_count_delta_range_widens_with_elapsed_time():
+    var g := TrackGenerator.new(42)
+    var early := g.count_delta_range()
+    for i in 36000:  # 600s at 1/60, well past every ramp constant in this file
+        g.tick(1.0 / 60.0, 0)
+        g.tick_gates(1.0 / 60.0, Formation.Kind.WIDE)
+    var late := g.count_delta_range()
+    assert_gt(late.y, early.y,
+        "the maximum Count delta must grow with distance, or later gates never feel more severe")
+
+func test_gate_spawning_does_not_perturb_the_enemy_spawn_sequence():
+    # Gate values must be drawn from a separate RNG stream. If they shared
+    # _rng with enemy spawning, interleaving tick_gates() calls would change
+    # the enemy spawn sequence for a fixed seed -- silently breaking every
+    # existing determinism test above the moment gates were added.
+    var without_gates := TrackGenerator.new(7)
+    var with_gates := TrackGenerator.new(7)
+    for i in 100:
+        var a := without_gates.tick(1.0, 0)
+        with_gates.tick_gates(1.0, Formation.Kind.WIDE)
+        var b := with_gates.tick(1.0, 0)
+        assert_eq(a, b, "enemy spawns must be identical whether or not tick_gates was ever called")
+
+func test_reset_replays_the_same_gate_sequence():
+    var g := TrackGenerator.new(42)
+    var first: Array[bool] = []
+    for i in 50:
+        first.append(g.tick_gates(1.0, Formation.Kind.WIDE).size() > 0)
+    g.reset()
+    var second: Array[bool] = []
+    for i in 50:
+        second.append(g.tick_gates(1.0, Formation.Kind.WIDE).size() > 0)
+    assert_eq(first, second)
+
+func test_reset_zeroes_the_gate_spawn_clock():
+    var g := TrackGenerator.new(42)
+    g.tick_gates(TrackGenerator.GATE_SPAWN_INTERVAL - 0.1, Formation.Kind.WIDE)
+    g.reset()
+    var spawns := g.tick_gates(0.5, Formation.Kind.WIDE)
+    assert_eq(spawns.size(), 0,
+        "reset must zero the gate clock -- otherwise a run that reset just before a spawn would spawn immediately on the new run's very first tick")
