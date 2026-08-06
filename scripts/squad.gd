@@ -27,6 +27,18 @@ func set_count(n: int) -> void:
         var slot := Formation.slot(units.count, formation, centre_x)
         units.spawn(slot, Vector2.ZERO, UNIT_HEALTH)
 
+func add_count(delta: int) -> void:
+    set_count(max(count() + delta, 1))
+
+func mul_count(factor: float) -> void:
+    set_count(max(int(round(count() * factor)), 1))
+
+func step_weapon_tier(delta: int) -> void:
+    weapon_tier = clampi(weapon_tier + delta, 0, Weapon.TIER_COUNT - 1)
+
+func set_formation(kind: int) -> void:
+    formation = kind
+
 func tick(delta: float, new_centre_x: float) -> void:
     centre_x = new_centre_x
     var t: float = 1.0 - exp(-SLOT_LERP * delta)

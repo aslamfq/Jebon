@@ -22,6 +22,7 @@ const MAX_DELTA := 0.1
 @onready var corridor_view: CorridorView = $CorridorView
 @onready var squad_projectile_view: ProjectileView = $SquadProjectileView
 @onready var enemy_projectile_view: ProjectileView = $EnemyProjectileView
+@onready var gate_view: GateView = $GateView
 @onready var hud: Label = $HUD/DistanceLabel
 
 var squad: Squad
@@ -34,6 +35,7 @@ var enemy_weapon: Weapon
 var squad_projectiles: Projectiles
 var enemy_projectiles: Projectiles
 var run: RunState
+var gates: Gates
 
 var _dragging := false
 var _drag_origin := Vector2.ZERO
@@ -62,6 +64,7 @@ func _ready() -> void:
     enemy_projectiles = Projectiles.new()
     run = RunState.new()
     run.load_best()
+    gates = Gates.new()
 
 func _unhandled_input(event: InputEvent) -> void:
     if event is InputEventScreenTouch or event is InputEventMouseButton:
@@ -96,6 +99,9 @@ func _process(delta: float) -> void:
     runner.tick(delta)
     steer.tick(delta)
     squad.tick(delta, steer.centre_x)
+    for pair in generator.tick_gates(delta, squad.formation):
+        gates.pairs.append(pair)
+    gates.tick(delta, Corridor.scroll_speed_at(runner.elapsed), squad)
     enemies.tick(delta, Vector2(0, -Corridor.scroll_speed_at(runner.elapsed)))
 
     var squad_shots := squad_weapon.tick(delta, squad.weapon_tier)
@@ -139,6 +145,7 @@ func _process(delta: float) -> void:
     units_view.render(squad.units, _time)
     enemy_view.render(enemies, _time)
     corridor_view.render(runner)
+    gate_view.render(gates)
     squad_projectile_view.render(squad_projectiles)
     enemy_projectile_view.render(enemy_projectiles)
     hud.text = "%d m    %d kills    %d fps" % [int(runner.distance), run.kills, Engine.get_frames_per_second()]
@@ -151,6 +158,7 @@ func _restart() -> void:
     steer.reset()
     runner.reset()
     generator.reset()
+    gates.reset()
     enemies.clear()
     squad_weapon.reset()
     enemy_weapon.reset()
