@@ -183,15 +183,44 @@ func test_non_formation_pairs_are_one_good_one_bad():
         if pair.left.op == Gate.Op.SET_FORMATION or pair.right.op == Gate.Op.SET_FORMATION:
             continue
         checked += 1
-        var left_good: bool = (pair.left.op == Gate.Op.ADD and pair.left.value > 0.0) \
-            or (pair.left.op == Gate.Op.MUL and pair.left.value > 1.0) \
-            or (pair.left.op == Gate.Op.TIER_STEP and pair.left.value > 0.0)
-        var right_good: bool = (pair.right.op == Gate.Op.ADD and pair.right.value > 0.0) \
-            or (pair.right.op == Gate.Op.MUL and pair.right.value > 1.0) \
-            or (pair.right.op == Gate.Op.TIER_STEP and pair.right.value > 0.0)
-        assert_ne(left_good, right_good,
+        assert_ne(pair.left.is_good(), pair.right.is_good(),
             "exactly one side of a non-Formation pair must be good and the other bad")
     assert_gt(checked, 0, "test setup problem: no non-Formation pair appeared to check")
+
+func test_formation_side_of_a_pair_is_never_treated_as_the_deliberately_bad_side():
+    # Design intent: Formation is neutral, never the coin-flipped "bad" side of
+    # a pair (see Gate.is_good()'s doc comment -- callers must not read it for
+    # SET_FORMATION gates). Pin this at the generator level: across many pairs,
+    # a Formation gate's is_good coin-flip parameter must vary (it's still
+    # randomly assigned true/false by _spawn_gate_pair), but the OTHER side of
+    # the pair must never itself be forced bad merely because Formation was
+    # picked -- i.e. when one side is Formation, the non-Formation side's
+    # good/bad must still vary across runs rather than being pinned to "bad".
+    var g := TrackGenerator.new(42)
+    var non_formation_good_seen := false
+    var non_formation_bad_seen := false
+    for i in 200:
+        var spawns := g.tick_gates(TrackGenerator.GATE_SPAWN_INTERVAL, Formation.Kind.WIDE)
+        if spawns.size() == 0:
+            continue
+        var pair: GatePair = spawns[0]
+        var formation_side: Gate = null
+        var other_side: Gate = null
+        if pair.left.op == Gate.Op.SET_FORMATION:
+            formation_side = pair.left
+            other_side = pair.right
+        elif pair.right.op == Gate.Op.SET_FORMATION:
+            formation_side = pair.right
+            other_side = pair.left
+        if formation_side == null:
+            continue
+        assert_eq(formation_side.op, Gate.Op.SET_FORMATION)
+        if other_side.is_good():
+            non_formation_good_seen = true
+        else:
+            non_formation_bad_seen = true
+    assert_true(non_formation_good_seen and non_formation_bad_seen,
+        "the non-Formation side of a Formation pair must still vary good/bad across runs, not be pinned bad because Formation was 'the other side'")
 
 func test_count_delta_range_widens_with_elapsed_time():
     var g := TrackGenerator.new(42)

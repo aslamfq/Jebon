@@ -81,6 +81,10 @@ func count_delta_range() -> Vector2:
     var hi := COUNT_DELTA_BASE_MAX + (COUNT_DELTA_MAX_MAX - COUNT_DELTA_BASE_MAX) * t
     return Vector2(lo, hi)
 
+# NOTE: count_delta_range()'s escalation (used by _count_gate below) reads
+# _elapsed, which only tick() (enemy spawning) advances -- tick_gates() never
+# advances it itself. Callers must call tick() alongside tick_gates() every
+# frame, or Count-gate severity will never escalate with distance.
 func tick_gates(delta: float, current_formation: int) -> Array[GatePair]:
     _gate_spawn_clock += delta
     if _gate_spawn_clock < GATE_SPAWN_INTERVAL:

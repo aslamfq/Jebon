@@ -21,6 +21,17 @@ func _init(p_op: Op, p_value: float, p_x_centre: float) -> void:
 func contains(x: float) -> bool:
     return abs(x - x_centre) <= HALF_WIDTH
 
+# Whether this gate's effect is beneficial to the squad. Only meaningful for
+# non-SET_FORMATION gates -- SET_FORMATION is neutral (neither good nor bad),
+# not "bad" or "good" by value, so callers must check op == Op.SET_FORMATION
+# themselves before trusting this method's answer for coloring/UX purposes.
+func is_good() -> bool:
+    match op:
+        Op.MUL:
+            return value > 1.0
+        _:
+            return value > 0.0
+
 func apply(squad: Squad) -> void:
     match op:
         Op.ADD:

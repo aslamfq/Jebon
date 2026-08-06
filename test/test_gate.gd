@@ -48,3 +48,27 @@ func test_contains_false_on_the_opposite_side():
     var gate := Gate.new(Gate.Op.ADD, 0.0, -2.4)
     assert_false(gate.contains(2.4),
         "a gate centred on the left must not claim a point on the right")
+
+func test_is_good_for_add_positive():
+    assert_true(Gate.new(Gate.Op.ADD, 5.0, 0.0).is_good())
+
+func test_is_good_for_add_negative():
+    assert_false(Gate.new(Gate.Op.ADD, -5.0, 0.0).is_good())
+
+func test_is_good_for_mul_above_one():
+    assert_true(Gate.new(Gate.Op.MUL, 2.0, 0.0).is_good())
+
+func test_is_good_for_mul_below_one():
+    assert_false(Gate.new(Gate.Op.MUL, 0.5, 0.0).is_good())
+
+func test_is_good_for_tier_step_positive():
+    assert_true(Gate.new(Gate.Op.TIER_STEP, 1.0, 0.0).is_good())
+
+func test_is_good_for_tier_step_negative():
+    assert_false(Gate.new(Gate.Op.TIER_STEP, -1.0, 0.0).is_good())
+
+# SET_FORMATION is intentionally not covered here: is_good() only documents a
+# contract for non-SET_FORMATION gates (see the doc comment on Gate.is_good()).
+# GateView's own SET_FORMATION-is-neutral check happens before it would ever
+# consult is_good() for a Formation gate, so there is no meaningful "correct"
+# is_good() answer to pin for that op.
