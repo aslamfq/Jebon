@@ -1,0 +1,27 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  gut:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.7.1
+          use-dotnet: false
+
+      - name: Import project
+        run: godot --headless --import --quit
+        continue-on-error: true
+
+      - name: Run GUT suite
+        run: >
+          godot --headless -s addons/gut/gut_cmdln.gd
+          -gdir=res://test -ginclude_subdirs -gexit
